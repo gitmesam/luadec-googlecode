@@ -45,7 +45,7 @@ char* StringBuffer_getCopy(StringBuffer* self);
 
 char* StringBuffer_getBuffer(StringBuffer* self);
 
-char* StringBuffer_getRef(StringBuffer* self);
+const char* StringBuffer_getRef(StringBuffer* self);
 
 void StringBuffer_prune(StringBuffer* self);
 

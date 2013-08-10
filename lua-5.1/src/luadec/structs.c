@@ -61,7 +61,7 @@ ListItem* PopFromList(List* list) {
 void LoopList(List* list, ListItemFn fn, void* param) {
 	ListItem* walk = list->head;
 	while (walk) {
-		ListItem*save = walk;
+		ListItem* save = walk;
 		walk = walk->next;
 		fn(save, param);
 	}

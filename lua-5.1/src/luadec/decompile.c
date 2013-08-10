@@ -20,6 +20,7 @@
 #include "StringBuffer.h"
 #include "structs.h"
 #include "proto.h"
+#include "ast.h"
 #include "decompile.h"
 
 #define stddebug stdout
@@ -643,63 +644,61 @@ int GetEndifAddr(Function* F, int addr) {
 	return 0;
 }
 
-void RawAddStatement(Function * F, StringBuffer * str)
-{
-	char *copy;
-	Statement* stmt;
-	copy = StringBuffer_getCopy(str);
+void RawAddAstStatement(Function* F, AstStatement* stmt) {
 	if (F->released_local) {
-		int i = 0;
+		AstBlock* block = F->blockPtr;
+		AstStatement* curr = cast(AstStatement*, block->statements->head);
+		AstStatement* tail = cast(AstStatement*, block->statements->tail);
+		AstStatement* prev = NULL;
+		int count = 0;
 		int lpc = F->released_local;
-		char* scopeclose[] = {
-			"end", "else", "elseif", "while", "until", NULL
-		};
 		F->released_local = 0;
-		for (i = 0; scopeclose[i]; i++)
-			if (strstr(copy, scopeclose[i]) == copy)
-				break;
-		if (!scopeclose[i]) {
-			int added = 0;
-			Statement* stmt = cast(Statement*, F->statements.head);
-			Statement* prev = NULL;
-			Statement* newst;
-			while (stmt) {
-				if (!added) {
-					if (stmt->line >= lpc) {
-						Statement *newst = NewStatement(strdup("do"), lpc, stmt->indent);
-						if (prev) {
-							prev->super.next = cast(ListItem*, newst);
-							newst->super.next = cast(ListItem*, stmt);
-						} else {
-							F->statements.head = cast(ListItem*, newst);
-							newst->super.next = cast(ListItem*, stmt);
-						}
-						added = 1;
-						stmt->indent++;
-					}
+		while (curr) {
+			if (curr->line >= lpc) {
+				//TODO check list.size
+				int blockSize = block->statements->size;
+				LoopStatement* dostmt = MakeBlockStatement();
+				AstBlock* doBlock = dostmt->body;
+				dostmt->super.line = lpc;
+				if (prev) {
+					prev->super.next = NULL;
 				} else {
-					stmt->indent++;
+					block->statements->head = NULL;
 				}
-				prev = stmt;
-				stmt = cast(Statement*, stmt->super.next);
+				block->statements->tail = cast(ListItem*, prev);
+				block->statements->size = count;
+				doBlock->statements->head = cast(ListItem*, curr);
+				doBlock->statements->tail = cast(ListItem*, tail);
+				doBlock->statements->size = blockSize - count;
+
+				AddToBlock(block, cast(AstStatement* ,dostmt));
+				F->blockPtr = doBlock;
+				break;
 			}
-			newst = NewStatement(strdup("end"), F->pc, F->indent);
-			AddToList(&(F->statements), cast(ListItem*, newst));
+			prev = curr;
+			curr = cast(AstStatement*, stmt->super.next);
+			count++;
 		}
 	}
-	stmt = NewStatement(copy, F->pc, F->indent);
-	AddToList(&(F->statements), cast(ListItem*, stmt));
+	stmt->line = F->pc;
+	AddToBlock(F->blockPtr, stmt);
 	F->lastLine = F->pc;
 }
 
+void RawAddStatement(Function* F, StringBuffer* str) {
+	AstStatement* stmt = MakeSimpleStatement(StringBuffer_getBuffer(str));
+	stmt->line = F->pc;
+	RawAddAstStatement(F, stmt);
+}
+
 void FlushWhile1(Function * F) {
-	LoopItem * walk = F->loop_ptr;
-	StringBuffer * str = StringBuffer_new("");
+	LoopItem* walk = F->loop_ptr;
+	StringBuffer* str = StringBuffer_new(NULL);
 
 	if (walk->type == WHILE && walk->start <= F->pc && walk->body == -1) {
-		StringBuffer_set(str, "while 1 do");
-		RawAddStatement(F, str);
-		F->indent++;
+		LoopStatement* whilestmt = MakeLoopStatement(WHILE_STMT, strdup("1"));
+		RawAddAstStatement(F, cast(AstStatement*, whilestmt));
+		F->blockPtr = whilestmt->body;
 		walk->body = walk->start;
 		walk = walk->parent;
 	}
@@ -736,16 +735,17 @@ void FlushBoolean(Function * F) {
 		}
 
 		if (flushWhile){
-			StringBuffer_printf(str, "while %s do", test);
-			RawAddStatement(F, str);
-			F->indent++;
+			LoopStatement* whilestmt = MakeLoopStatement(WHILE_STMT, test);
+			RawAddAstStatement(F, cast(AstStatement*, whilestmt));
+			F->blockPtr = whilestmt->body;
 		} else {
+			IfStatement* ifstmt = NULL;
 			FlushWhile1(F);
 			StoreEndifAddr(F, endif);
-			StringBuffer_printf(str, "if %s then", test);
+			ifstmt = MakeIfStatement(test);
+			RawAddAstStatement(F, cast(AstStatement*, ifstmt));
+			F->blockPtr = ifstmt->thenBlock;
 			F->elseWritten = 0;
-			RawAddStatement(F, str);
-			F->indent++;
 		}
 
 FlushBoolean_CLEAR_HANDLER1:
@@ -766,17 +766,18 @@ void DeclareLocalsAddStatement(Function * F, StringBuffer * statement)
 	RawAddStatement(F, statement);
 }
 
-void AddStatement(Function * F, StringBuffer * statement)
-{
+void AddStatement(Function* F, StringBuffer* statement) {
 	FlushBoolean(F);
 	if (error) return;
 
 	RawAddStatement(F, statement);
 }
 
-void MarkBackpatch(Function* F) {
-	Statement* stmt = (Statement*) LastItem(&(F->statements));
-	stmt->backpatch = 1;
+void AddAstStatement(Function * F, AstStatement* stmt) {
+	FlushBoolean(F);
+	if (error) return;
+
+	RawAddAstStatement(F, stmt);
 }
 
 void FlushElse(Function* F) {
@@ -794,10 +795,19 @@ void FlushElse(Function* F) {
 			test = WriteBoolean(exp, &thenaddr, &endif, 0);
 			if (error) goto FlushElse_CLEAR_HANDLER1;
 			StoreEndifAddr(F, endif);
-			StringBuffer_addPrintf(str, "elseif %s then", test);
-			F->elseWritten = 0;
-			RawAddStatement(F, str);
-			F->indent++;
+			if (F->blockPtr->type == IF_THEN_BLOCK) {
+				IfStatement* newif = NULL;
+				IfStatement* lastif = cast(IfStatement*, F->blockPtr->parent);
+				F->blockPtr = lastif->elseBlock;
+				newif = MakeIfStatement(test);
+				RawAddAstStatement(F, cast(AstStatement*, newif));
+				F->blockPtr = newif->thenBlock;
+				F->elseWritten = 0;
+			} else {
+				SET_ERROR(F," there should be a elseif, but not in if_then");
+				goto FlushElse_CLEAR_HANDLER1;
+			}
+
 
 FlushElse_CLEAR_HANDLER1:
 			if (exp) DeleteLogicExpTree(exp);
@@ -805,16 +815,18 @@ FlushElse_CLEAR_HANDLER1:
 			StringBuffer_delete(str);
 			if (error) return;
 		} else {
-			StringBuffer* str = StringBuffer_new(NULL);
-			StringBuffer_printf(str, "else");
-			RawAddStatement(F, str);
-			/* this test circumvents jump-to-jump optimization at
-			the end of if blocks */
-			if (!PeekEndifAddr(F, F->pc + 3))
-				StoreEndifAddr(F, F->elsePending);
-			F->indent++;
-			F->elseWritten = 1;
-			StringBuffer_delete(str);
+			if (F->blockPtr->type == IF_THEN_BLOCK) {
+				IfStatement* lastif = cast(IfStatement*, F->blockPtr->parent);
+				F->blockPtr = lastif->elseBlock;
+				/* this test circumvents jump-to-jump optimization at
+				the end of if blocks */
+				if (!PeekEndifAddr(F, F->pc + 3))
+					StoreEndifAddr(F, F->elsePending);
+				F->elseWritten = 1;
+			} else {
+				SET_ERROR(F," there should be a else, but not in if_then");
+				goto FlushElse_CLEAR_HANDLER1;
+			}
 		}
 		F->elsePending = 0;
 		F->elseStart = 0;
@@ -1148,7 +1160,8 @@ Function *NewFunction(const Proto * f)
 	* calloc, to ensure all parameters are 0/NULL
 	*/
 	self = (Function*)calloc(1, sizeof(Function));
-	InitList(&(self->statements));
+	self->funcBlock = MakeAstBlock(FUNCTION_BODY);
+	self->blockPtr = self->funcBlock;
 	self->f = f;
 	InitList(&(self->vpend));
 	self->tpend = (IntSet*)calloc(1, sizeof(IntSet));
@@ -1172,7 +1185,7 @@ Function *NewFunction(const Proto * f)
 void DeleteFunction(Function * self)
 {
 	int i;
-	ClearList(&(self->statements), (ListItemFn)ClearStatement);
+	DeleteAstBlock(self->funcBlock);
 	ClearList(&(self->bools), (ListItemFn)ClearBoolOp);
 	/*
 	* clean up registers
@@ -1426,7 +1439,7 @@ void PrintFunctionCheck(Function * F){
 		// F->nextEndif should be cleared in function int GetEndifAddr(Function* F, int addr)
 		// you may get -- WARNING: missing end command somewhere! Added here
 		StringBuffer* str = StringBuffer_new("-- WARNING: F->nextEndif is not empty. Unhandled nextEndif->addr = ");
-		Statement* stmt = NULL;
+		AstStatement* stmt = NULL;
 		Endif* ptr = F->nextEndif;
 		while(ptr){			
 			StringBuffer_addPrintf(str, "%d ", ptr->addr);
@@ -1434,8 +1447,9 @@ void PrintFunctionCheck(Function * F){
 			free(ptr);
 			ptr = F->nextEndif;
 		}
-		stmt = NewStatement(StringBuffer_getBuffer(str), F->pc, F->indent);
-		AddToList(&(F->statements), cast(ListItem*, stmt));
+		stmt = MakeSimpleStatement(StringBuffer_getBuffer(str));
+		stmt->line = F->pc;
+		AddToBlock(F->blockPtr, stmt);
 		StringBuffer_delete(str);
 	}
 }
@@ -1445,7 +1459,7 @@ char* PrintFunction(Function * F)
 	char* result;
 	PrintFunctionCheck(F);
 	StringBuffer_prune(F->decompiledCode);
-	LoopList(&(F->statements), (ListItemFn) PrintStatement, F);
+	PrintAstBlock(F->funcBlock, F->decompiledCode, 0);
 	result = StringBuffer_getBuffer(F->decompiledCode);
 	return result;
 }
@@ -1506,7 +1520,7 @@ void MakeIndex(Function* F, StringBuffer * str, char* rstr, IndexType type)
 	lastchar = rstr[len - 1];
 	rstr[len - 1] = '\0';
 	rawrstrbuff = StringBuffer_new((rstr + 1));
-	rawrstr = StringBuffer_getRef(rawrstrbuff);
+	rawrstr = StringBuffer_getBuffer(rawrstrbuff);
 	rstr[len - 1] = lastchar;
 
 	dot = 0;
@@ -1995,26 +2009,32 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 		TRY(ReleaseLocals(F));
 
 		while (RemoveFromSet(F->do_opens, pc)) {
-			StringBuffer_set(str, "do");
-			TRY(AddStatement(F, str));
-			StringBuffer_prune(str);
-			F->indent++;
+			LoopStatement* blockstmt = MakeBlockStatement();
+			AddAstStatement(F, cast(AstStatement*, blockstmt));
+			F->blockPtr = blockstmt->body;
 		}
 
 		while (RemoveFromSet(F->do_closes, pc)) {
-			StringBuffer_set(str, "end");
-			F->indent--;
-			TRY(AddStatement(F, str));
-			StringBuffer_prune(str);
+			AstBlock* block = F->blockPtr;
+			if ( block->type == BLOCK_BODY) {
+				F->blockPtr = block->parent->parent;
+			} else {
+				SET_ERROR(F, "shuold be a block end, but not in a block");
+				goto errorHandler;
+			}
 		}
 
 		while (GetEndifAddr(F, pc + 1)) {
-			StringBuffer_set(str, "end");
+			AstBlock* block = F->blockPtr;
 			F->elseWritten = 0;
 			F->elsePending = 0;
-			F->indent--;
-			TRY(AddStatement(F, str));
-			StringBuffer_prune(str);
+			if ( block->type == IF_THEN_BLOCK) {
+				F->blockPtr = block->parent->parent;
+			} else {
+				SET_ERROR(F, "shuold be a if then end, but not in a if then block");
+				goto errorHandler;
+			}
+
 		}
 
 		if ((F->loop_ptr->start == pc) && (F->loop_ptr->type == REPEAT || F->loop_ptr->type == WHILE)) {
@@ -2025,22 +2045,22 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 			}
 
 			while ( !(walk == F->loop_ptr)) {
+				LoopStatement* loopstmt = NULL;
 				if (walk->type == WHILE) {
 					walk->body = walk->start;
-					StringBuffer_set(str, "while 1 do");
+					loopstmt = MakeLoopStatement(WHILE_STMT, strdup("1"));
 				} else if (walk->type == REPEAT) {
-					StringBuffer_set(str, "repeat");
+					loopstmt = MakeLoopStatement(REPEAT_STMT, NULL);
 				}
-				TRY(RawAddStatement(F,str));
-				F->indent++;
-
+				RawAddAstStatement(F, cast(AstStatement*, loopstmt));
+				F->blockPtr = loopstmt->body;
 				walk = walk->child;
 			}
 
 			if (walk->type == REPEAT) {
-				StringBuffer_set(str, "repeat");
-				TRY(RawAddStatement(F,str));
-				F->indent++;
+				LoopStatement* loopstmt = MakeLoopStatement(REPEAT_STMT, NULL);
+				RawAddAstStatement(F, cast(AstStatement*, loopstmt));
+				F->blockPtr = loopstmt->body;
 			} else if (walk->type == WHILE) { 
 				/***
 				* try to process all while as " while 1 do if "
@@ -2060,10 +2080,10 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 					end
 				end
 				***/
+				LoopStatement* loopstmt = MakeLoopStatement(WHILE_STMT, strdup("1"));
+				RawAddAstStatement(F, cast(AstStatement*, loopstmt));
+				F->blockPtr = loopstmt->body;
 				walk->body = walk->start;
-				StringBuffer_set(str, "while 1 do");
-				TRY(RawAddStatement(F,str));
-				F->indent++;
 			}
 		}
 
@@ -2353,45 +2373,34 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 					  ***/
 
 					  // method 2 ChangeIfToWhile(F)
-					  Statement *walk = cast(Statement *, F->statements.tail);
-					  while (walk->indent > F->indent - 1) {
-						  walk = cast(Statement *, walk->super.prev);
-					  }
-					  if (strstr(walk->code, "if") == walk->code) {
-						  Statement *prev = cast(Statement *, walk->super.prev);
-						  Statement *next = cast(Statement *, walk->super.next);
-						  if (strstr(prev->code, "while 1 do") == prev->code) {
-							  char* test = walk->code + 3;
-							  int len = strlen(test);
-							  test[len-5] = '\0';
-							  StringBuffer_printf(str, "while %s do", test);
-							  free(prev->code);
-							  prev->code = StringBuffer_getBuffer(str);
-							  prev->super.next = (ListItem *)next;
-							  if (next) {
-								  next->super.prev = (ListItem *)prev;
-							  } else {
-								  F->statements.tail = (ListItem *)prev;
+					  AstBlock* thisBlock = F->blockPtr;
+					  if (thisBlock->type == IF_THEN_BLOCK) {
+						  IfStatement* ifstmt = cast(IfStatement*, thisBlock->parent);
+						  AstBlock* parentBlock = ifstmt->super.parent;
+						  if (parentBlock->type == WHILE_BODY && parentBlock->statements->size == 1) {
+							  // if is the first statment of while body
+							  LoopStatement* whilestmt = cast(LoopStatement*, parentBlock->parent);
+							  char* whiletest = whilestmt->super.code;
+							  if (strcmp(whiletest, "1") == 0) {
+								  char* iftest = ifstmt->super.code;
+								  whilestmt->super.code = iftest;
+								  whilestmt->body = thisBlock;
+								  thisBlock->type = WHILE_BODY;
+								  thisBlock->parent = cast(AstStatement*, whilestmt);
+
+								  parentBlock->type = BLOCK_BODY;
+								  parentBlock->parent = NULL;
+								  ifstmt->super.code = whiletest;
+								  ifstmt->thenBlock = MakeAstBlock(IF_THEN_BLOCK);
+								  DeleteAstBlock(parentBlock);
 							  }
-							  F->statements.size--;
-							  DeleteStatement(walk);
-							  walk = next;
-							  while (walk) {
-								  walk->indent--;
-								  walk = cast(Statement *, walk->super.next);
-							  }
-							  F->indent--;
 						  }
 					  }
 				  }
-				  F->indent--;
-				  StringBuffer_printf(str, "end");
-				  TRY(AddStatement(F, str));
+				  F->blockPtr = F->blockPtr->parent->parent;
 			  }else if (GetEndifAddr(F, pc + 2)) { // jmp before 'else'
 				  if (F->elseWritten) {
-					  F->indent--;
-					  StringBuffer_printf(str, "end");
-					  TRY(AddStatement(F, str));
+					  F->blockPtr = F->blockPtr->parent->parent;
 				  }
 				  F->indent--;
 				  F->elsePending = dest;
@@ -2405,6 +2414,7 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 				  const char *generator, *control, *state;
 				  //char *variables[20];
 				  char* vname[40];
+				  LoopStatement* forstmt = NULL;
 				  //int stepLen;
 
 				  a = GETARG_A(idest);
@@ -2449,12 +2459,12 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 
 				  DeclarePendingLocals(F);
 
-				  StringBuffer_printf(str,"for %s",vname[0]);
+				  StringBuffer_printf(str,"%s",vname[0]);
 				  for (i=2; i<=c; i++) {
 					  StringBuffer_addPrintf(str, ",%s",vname[i-1]);
 				  }
 				  StringBuffer_addPrintf(str," in ");
-				  StringBuffer_addPrintf(str,"%s do",generator);
+				  StringBuffer_addPrintf(str,"%s",generator);
 
 				  F->internal[a] = 1;
 				  F->internal[a + 1] = 1;
@@ -2462,8 +2472,9 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 
 				  F->intbegin[F->intspos] = a;
 				  F->intend[F->intspos] = a+2+c;
-				  TRY(AddStatement(F, str));
-				  F->indent++;
+				  forstmt = MakeLoopStatement(TFORLOOP_STMT, StringBuffer_getBuffer(str));
+				  AddAstStatement(F, cast(AstStatement*, forstmt));
+				  F->blockPtr = forstmt->body;
 				  break;
 			  } else if (sbc == 2 && GET_OPCODE(code[pc+2]) == OP_LOADBOOL) {
 				  int boola = GETARG_A(code[pc+1]);
@@ -2592,9 +2603,15 @@ LOGIC_NEXT_JMP:
 				  LogicExp* exp = NULL;
 				  TRY(exp = MakeBoolean(F, &endif, &thenaddr));
 				  TRY(test = WriteBoolean(exp, &thenaddr, &endif, 0));
-				  StringBuffer_printf(str, "until %s", test);
-				  F->indent--;
-				  RawAddStatement(F, str);
+				  if (F->blockPtr->type == REPEAT_BODY) {
+					  LoopStatement* repeatstmt = cast(LoopStatement*, F->blockPtr->parent);
+					  repeatstmt->super.code = test;
+					  test = NULL;
+					  F->blockPtr = repeatstmt->super.parent;
+				  } else {
+					  SET_ERROR(F, "shuold be a until here, but not in repeat body");
+					  goto errorHandler;
+				  }
 				  if (test) free(test);
 				  if (exp) DeleteLogicExpTree(exp);
 			  }
@@ -2699,6 +2716,7 @@ LOGIC_NEXT_JMP:
 	  case OP_FORLOOP: //Lua5.1 specific. TODO: CHECK
 		  {
 			  int i;
+			  AstBlock* block = F->blockPtr;
 
 			  for (i=F->intbegin[F->intspos]; i<=F->intend[F->intspos]; i++)
 			  {
@@ -2707,16 +2725,20 @@ LOGIC_NEXT_JMP:
 				  F->internal[i] = 0;
 			  }
 			  F->intspos--;
-			  F->indent--;
 			  F->ignore_for_variables = 0;
 
-			  StringBuffer_set(str, "end");
-			  TRY(AddStatement(F, str));
+			  if (block->type == FORLOOP_BODY) {
+				  F->blockPtr = block->parent->parent;
+			  } else {
+				  SET_ERROR(F, "should be a for end, but not in for body");
+				  goto errorHandler;
+			  }
 			  break;
 		  }
 	  case OP_TFORLOOP: //Lua5.1 specific. TODO: CHECK
 		  {
 			  int i;
+			  AstBlock* block = F->blockPtr;
 			  for (i=F->intbegin[F->intspos]; i<=F->intend[F->intspos]; i++)
 			  {
 				  IS_VARIABLE(i)=0;
@@ -2724,10 +2746,13 @@ LOGIC_NEXT_JMP:
 			  }
 			  F->intspos--;
 
-			  F->indent--;
 			  F->ignore_for_variables = 0;
-			  StringBuffer_set(str, "end");
-			  TRY(AddStatement(F, str));
+			  if (block->type == TFORLOOP_BODY) {
+				  F->blockPtr = block->parent->parent;
+			  } else {
+				  SET_ERROR(F, "should be a tfor end, but not in tfor body");
+				  goto errorHandler;
+			  }
 			  ignoreNext = 1;
 			  break;
 		  }
@@ -2741,6 +2766,7 @@ LOGIC_NEXT_JMP:
 			  char *idxname;
 			  const char *initial, *a1str, *endstr;
 			  int stepLen;
+			  LoopStatement* forstmt = NULL;
 			  F->intspos++;
 			  TRY(initial = GetR(F, a));
 			  TRY(endstr = GetR(F, a+2));
@@ -2788,10 +2814,10 @@ LOGIC_NEXT_JMP:
 			  // }
 
 			  if (step == 1) {
-				  StringBuffer_printf(str, "for %s = %s, %s do",
+				  StringBuffer_printf(str, "%s = %s, %s",
 					  idxname, initial, a1str);
 			  } else {
-				  StringBuffer_printf(str, "for %s = %s, %s, %s do",
+				  StringBuffer_printf(str, "%s = %s, %s, %s",
 					  idxname, initial, a1str, REGISTER(a + 2));
 			  }
 
@@ -2804,8 +2830,9 @@ LOGIC_NEXT_JMP:
 			  F->internal[a + 3] = 1;
 			  F->intbegin[F->intspos] = a;
 			  F->intend[F->intspos] = a+3;
-			  TRY(AddStatement(F, str));
-			  F->indent++;
+			  forstmt = MakeLoopStatement(FORLOOP_STMT, StringBuffer_getBuffer(str));
+			  AddAstStatement(F, cast(AstStatement*, forstmt));
+			  F->blockPtr = forstmt->body;
 			  break;
 		  }
 	  case OP_SETLIST:
@@ -2904,11 +2931,14 @@ LOGIC_NEXT_JMP:
 		}
 
 		if (GetEndifAddr(F, pc)) {
-			StringBuffer_set(str, "end");
+			AstBlock* block = F->blockPtr;
 			F->elseWritten = 0;
-			F->indent--;
-			TRY(AddStatement(F, str));
-			StringBuffer_prune(str);
+			if (block->type == IF_THEN_BLOCK) {
+				F->blockPtr = block->parent->parent;
+			} else {
+				SET_ERROR(F, "should be a if end, but not in if then body");
+				goto errorHandler;
+			}
 		}
 
 		TRY(OutputAssignments(F));
@@ -2916,10 +2946,13 @@ LOGIC_NEXT_JMP:
 	}
 
 	if (GetEndifAddr(F, pc+1)) {
-		StringBuffer_set(str, "end");
-		F->indent--;
-		TRY(AddStatement(F, str));
-		StringBuffer_prune(str);
+		AstBlock* block = F->blockPtr;
+		if (block->type == IF_THEN_BLOCK) {
+			F->blockPtr = block->parent->parent;
+		} else {
+			SET_ERROR(F, "should be a if end, but not in if then body");
+			goto errorHandler;
+		}
 	}
 
 	TRY(FlushBoolean(F));
@@ -2927,14 +2960,6 @@ LOGIC_NEXT_JMP:
 	if (SET_CTR(F->tpend)>0) {
 		StringBuffer_set(str," -- WARNING: undefined locals caused missing assignments!");
 		TRY(AddStatement(F,str));
-	}
-
-	while (F->indent>indent+1) {
-		StringBuffer_set(str," -- WARNING: missing end command somewhere! Added here");
-		TRY(AddStatement(F, str));
-		F->indent--;
-		StringBuffer_set(str, "end");
-		TRY(AddStatement(F, str));
 	}
 
 	if( !IsMain(f) && func_checking){
@@ -2950,12 +2975,11 @@ LOGIC_NEXT_JMP:
 errorHandler:
 	printf("ERRORHANDLER\n");
 	{
-		char *copy;
-		Statement *stmt;
+		AstStatement* stmt;
 		StringBuffer_printf(str, "--[[ DECOMPILER ERROR %d: %s ]]", errorCode, error);
-		copy = StringBuffer_getCopy(str);
-		stmt = NewStatement(copy, F->pc, F->indent);
-		AddToList(&(F->statements), (ListItem *) stmt);
+		stmt = MakeSimpleStatement(StringBuffer_getBuffer(str));
+		stmt->line = F->pc;
+		AddToBlock(F->blockPtr, stmt);
 		F->lastLine = F->pc;
 	}
 	output = PrintFunction(F);

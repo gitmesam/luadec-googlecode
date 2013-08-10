@@ -131,7 +131,7 @@ char* StringBuffer_getCopy(StringBuffer* self) {
    return result;
 }
 
-char* StringBuffer_getRef(StringBuffer* self) {
+const char* StringBuffer_getRef(StringBuffer* self) {
    return self->buffer;
 }
 

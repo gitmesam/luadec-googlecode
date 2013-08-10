@@ -3,6 +3,7 @@
 
 #include "structs.h"
 #include "StringBuffer.h"
+#include "ast.h"
 
 typedef struct BoolOp_ BoolOp;
 struct BoolOp_ {
@@ -30,14 +31,15 @@ struct Statement_ {
 	int backpatch;
 };
 
-typedef enum {
+typedef enum LoopType_ LoopType;
+enum LoopType_ {
 	FUNC_ROOT,
 	WHILE,
 	WHILE1,
 	REPEAT,
 	FORLOOP,
 	TFORLOOP
-} LoopType;
+};
 
 typedef struct LoopItem_ LoopItem;
 struct LoopItem_ {
@@ -109,7 +111,8 @@ struct Function_ {
 	List bools;
 	Endif* nextEndif;
 
-	List statements;
+	AstBlock* funcBlock;
+	AstBlock* blockPtr;
 	int firstLine;
 	int lastLine;
 	/* holds the printed function */
@@ -188,11 +191,12 @@ void PrintLogicExp(StringBuffer * str, int dest, LogicExp * exp, int inv_, int r
 void AddStatement(Function * F, StringBuffer * str);
 void ShowState(Function * F);
 
-typedef enum {
+typedef enum IndexType_ IndexType;
+enum IndexType_ {
 	DOT=0,
 	SELF=1,
 	TABLE=2
-} IndexType;
+};
 void MakeIndex(Function * F, StringBuffer * str, char * rstr, IndexType type);
 
 void luaU_decompile(Proto * f, int lflag);
