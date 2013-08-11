@@ -676,7 +676,7 @@ void RawAddAstStatement(Function* F, AstStatement* stmt) {
 				break;
 			}
 			prev = curr;
-			curr = cast(AstStatement*, stmt->super.next);
+			curr = cast(AstStatement*, prev->super.next);
 			count++;
 		}
 	}
@@ -2933,7 +2933,7 @@ LOGIC_NEXT_JMP:
 		if (GetEndifAddr(F, pc)) {
 			AstBlock* block = F->blockPtr;
 			F->elseWritten = 0;
-			if (block->type == IF_THEN_BLOCK) {
+			if (block->type == IF_THEN_BLOCK || block->type == IF_ELSE_BLOCK) {
 				F->blockPtr = block->parent->parent;
 			} else {
 				SET_ERROR(F, "should be a if end, but not in if then body");
@@ -2947,7 +2947,7 @@ LOGIC_NEXT_JMP:
 
 	if (GetEndifAddr(F, pc+1)) {
 		AstBlock* block = F->blockPtr;
-		if (block->type == IF_THEN_BLOCK) {
+		if (block->type == IF_THEN_BLOCK || block->type == IF_ELSE_BLOCK) {
 			F->blockPtr = block->parent->parent;
 		} else {
 			SET_ERROR(F, "should be a if end, but not in if then body");

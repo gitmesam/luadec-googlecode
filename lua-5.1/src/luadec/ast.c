@@ -192,19 +192,19 @@ void PrintIfStatement(IfStatement* stmt, StringBuffer* buff, int indent, int els
 		StringBuffer_add(buff, "  ");
 	}
 	if (elseif) {
-		StringBuffer_printf(buff,  "elseif %s then\n", stmt->super.code);
+		StringBuffer_addPrintf(buff,  "elseif %s then\n", stmt->super.code);
 	} else {
-		StringBuffer_printf(buff,  "if %s then\n", stmt->super.code);
+		StringBuffer_addPrintf(buff,  "if %s then\n", stmt->super.code);
 	}
 	PrintAstBlock(stmt->thenBlock, buff, indent + 1);
 	if (elseSize == 0) {
-		StringBuffer_printf(buff,  "end\n");
+		StringBuffer_add(buff,  "end\n");
 	} else if (elseSize == 1 && elseFirst->type == IF_STMT) {
 		PrintIfStatement((IfStatement*)elseFirst, buff, indent, 1);
 	} else {
-		StringBuffer_printf(buff,  "else\n");
+		StringBuffer_add(buff,  "else\n");
 		PrintAstBlock(elseBlock, buff, indent + 1);
-		StringBuffer_printf(buff,  "end\n");
+		StringBuffer_add(buff,  "end\n");
 	}
 }
 
