@@ -42,7 +42,7 @@ StringBuffer *errorStr;
 * -------------------------------------------------------------------------
 */
 
-const char* getupval(Function * F, int r) {
+const char* getupval(Function* F, int r) {
 	if (F->f->upvalues && r < F->f->sizeupvalues) {
 		return (char*)getstr(F->f->upvalues[r]);
 	} else {
@@ -51,11 +51,11 @@ const char* getupval(Function * F, int r) {
 	}
 }
 
-char* luadec_strdup(const char * src){
+char* luadec_strdup(const char* src){
 	return src?strdup(src):NULL;
 }
 
-#define UPVALUE(r) ( getupval(F,r) )
+#define UPVALUE(r) (getupval(F,r))
 #define REGISTER(r) F->R[r]
 #define PRIORITY(r) (r>=MAXSTACK ? 0 : F->Rprio[r])
 #define LOCAL(r) (F->f->locvars ? ((char*)getstr(F->f->locvars[r].varname)) : error_nil)
@@ -73,7 +73,7 @@ char* luadec_strdup(const char * src){
 #define int2fb(x)	(luaO_int2fb(x))
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
-#define SET_ERROR(F,e) { StringBuffer_printf(errorStr," -- DECOMPILER ERROR: %s\n", (e)); RawAddStatement((F),errorStr); }
+#define SET_ERROR(F,e) { StringBuffer_printf(errorStr,"-- DECOMPILER ERROR: %s\n", (e)); RawAddStatement((F),errorStr); }
 /*  error = e; errorCode = __LINE__; */ /*if (debug) { printf("DECOMPILER ERROR: %s\n", e);  }*/
 
 static int debug;
@@ -81,55 +81,53 @@ static int debug;
 static char* error;
 static int errorCode;
 
-int GetJmpAddr(Function* F, int addr){
+int GetJmpAddr(Function* F, int addr) {
 	int real_end = addr;
-	if(real_end >= F->f->sizecode){
-		real_end = F->f->sizecode ;
+	if(real_end >= F->f->sizecode) {
+		real_end = F->f->sizecode;
 		return real_end;
 	}
-	if(real_end < 0){
+	if(real_end < 0) {
 		real_end = -1;
 		return real_end;
 	}
-	while(GET_OPCODE(F->f->code[real_end]) == OP_JMP){
+	while(GET_OPCODE(F->f->code[real_end]) == OP_JMP) {
 		real_end = GETARG_sBx(F->f->code[real_end]) + real_end + 1;
 	}
 	return real_end;
 }
 
-void RawAddStatement(Function * F, StringBuffer * str);
-void DeclareLocal(Function * F, int ixx, const char* value);
+void RawAddStatement(Function* F, StringBuffer* str);
+void DeclareLocal(Function* F, int ixx, const char* value);
 
-Statement *NewStatement(char *code, int line, int indent) {
-	Statement *self;
-	self = (Statement*)calloc(1, sizeof(Statement));
-	cast(ListItem*, self)->next = NULL;
+Statement* NewStatement(char* code, int line, int indent) {
+	Statement* self = (Statement*)calloc(1, sizeof(Statement));
+	self->super.prev = NULL;
+	self->super.next = NULL;
 	self->code = code;
 	self->line = line;
 	self->indent = indent;
 	return self;
 }
 
-void ClearStatement(Statement * self, void* dummy) {
+void ClearStatement(Statement* self, void* dummy) {
 	free(self->code);
 }
 
-void DeleteStatement(Statement * self) {
+void DeleteStatement(Statement* self) {
 	ClearStatement(self, NULL);
 	free(self);
 }
 
-void PrintStatement(Statement * self, void* F_) {
+void PrintStatement(Statement* self, Function* F) {
 	int i;
-	Function* F = cast(Function*, F_);
-
 	for (i = 0; i < self->indent; i++) {
 		StringBuffer_add(F->decompiledCode, "  ");
 	}
 	StringBuffer_addPrintf(F->decompiledCode, "%s\n", self->code);
 }
 
-LoopItem *NewLoopItem(LoopType type, int prep, int start, int body, int end, int next_code){
+LoopItem* NewLoopItem(LoopType type, int prep, int start, int body, int end, int next_code){
 	LoopItem* self = (LoopItem*)calloc(1, sizeof(LoopItem));
 
 	self->parent = NULL;
@@ -205,9 +203,10 @@ void DeleteLoopTree2(LoopItem* item){
 	free(item);
 }
 
-IntListItem *NewIntListItem(int v){
+IntListItem* NewIntListItem(int v){
 	IntListItem* self = (IntListItem*)calloc(1, sizeof(IntListItem));
-	((ListItem *) self)->next = NULL;
+	self->super.prev = NULL;
+	self->super.next = NULL;
 	self->value = v;
 	return self;
 }
@@ -216,7 +215,7 @@ int MatchIntListItem(IntListItem* item, int* match_value){
 	return (item->value == *match_value);
 }
 
-void DeleteIntListItem(IntListItem* item, void * dummy){
+void DeleteIntListItem(IntListItem* item, void* dummy){
 	free(item);
 }
 
@@ -282,7 +281,7 @@ void PrintLogicItem(StringBuffer* str, LogicExp* exp, int inv, int rev) {
 		PrintLogicExp(str, exp->dest, exp->subexp, inv, rev);
 		StringBuffer_addChar(str, ')');
 	} else {
-		char *op;
+		char* op;
 		int cond = exp->neg;
 		if (inv) cond = !cond;
 		if (rev) cond = !cond;
@@ -325,8 +324,9 @@ void TieAsNext(LogicExp* curr, LogicExp* item) {
 
 void Untie(LogicExp* curr, int* thenaddr) {
 	LogicExp* previous = curr->prev;
-	if (previous)
+	if (previous) {
 		previous->next = NULL;
+	}
 	curr->prev = NULL;
 	curr->parent = NULL;
 }
@@ -340,17 +340,17 @@ void TieAsSubExp(LogicExp* parent, LogicExp* item) {
 	}
 }
 
-LogicExp* MakeBoolean(Function * F, int* endif, int* thenaddr)
-{
+LogicExp* MakeBoolean(Function* F, int* endif, int* thenaddr) {
 	int i;
 	int firstaddr, elseaddr;
-	BoolOp * first, * realLast, * last, * tmpLast, * curr;
+	BoolOp *first, *realLast, *last, *tmpLast, *curr;
 	int lastCount;
 	LogicExp *currExp=NULL, *firstExp=NULL;
 	int dest;
 
-	if (endif)
+	if (endif) {
 		*endif = 0;
+	}
 
 	if (F->bools.size == 0) {
 		SET_ERROR(F,"Attempted to build a boolean expression without a pending context");
@@ -526,7 +526,7 @@ LogicExp* MakeBoolean(Function * F, int* endif, int* thenaddr)
 	}
 	curr = last; 
 	while (curr) {
-		BoolOp * prev = cast(BoolOp*, curr->super.prev);
+		BoolOp* prev = cast(BoolOp*, curr->super.prev);
 		DeleteBoolOp(curr);
 		curr = prev;
 	}
@@ -582,7 +582,7 @@ OutputBoolean_CLEAR_HANDLER1:
 	return result;
 }
 
-void StoreEndifAddr(Function * F, int addr) {
+void StoreEndifAddr(Function* F, int addr) {
 	Endif* at = F->nextEndif;
 	Endif* prev = NULL;
 	Endif* newEndif = (Endif*)calloc(1, sizeof(Endif));
@@ -622,7 +622,6 @@ int PeekEndifAddr(Function* F, int addr) {
 	return 0;
 }
 
-
 int GetEndifAddr(Function* F, int addr) {
 	Endif* at = F->nextEndif;
 	Endif* prev = NULL;
@@ -646,42 +645,40 @@ int GetEndifAddr(Function* F, int addr) {
 
 void RawAddAstStatement(Function* F, AstStatement* stmt) {
 	if (F->released_local) {
-		AstBlock* block = F->blockPtr;
-		AstStatement* curr = cast(AstStatement*, block->statements->head);
-		AstStatement* tail = cast(AstStatement*, block->statements->tail);
+		AstStatement* block = F->currStmt;
+		AstStatement* curr = cast(AstStatement*, block->sub->head);
+		AstStatement* tail = cast(AstStatement*, block->sub->tail);
 		AstStatement* prev = NULL;
 		int count = 0;
 		int lpc = F->released_local;
 		F->released_local = 0;
 		while (curr) {
 			if (curr->line >= lpc) {
-				//TODO check list.size
-				int blockSize = block->statements->size;
-				LoopStatement* dostmt = MakeBlockStatement();
-				AstBlock* doBlock = dostmt->body;
-				dostmt->super.line = lpc;
-				if (prev) {
-					prev->super.next = NULL;
-				} else {
-					block->statements->head = NULL;
-				}
-				block->statements->tail = cast(ListItem*, prev);
-				block->statements->size = count;
-				doBlock->statements->head = cast(ListItem*, curr);
-				doBlock->statements->tail = cast(ListItem*, tail);
-				doBlock->statements->size = blockSize - count;
-
-				AddToBlock(block, cast(AstStatement* ,dostmt));
-				F->blockPtr = doBlock;
 				break;
 			}
 			prev = curr;
 			curr = cast(AstStatement*, prev->super.next);
 			count++;
 		}
+		if (curr) {
+			//TODO check list.size
+			int blockSize = block->sub->size;
+
+			AstStatement* dostmt = MakeBlockStatement();
+			dostmt->line = lpc;
+
+			while (curr) {
+				AstStatement* next = cast(AstStatement*, curr->super.next);
+				RemoveFromList(block->sub, cast(ListItem*,curr));
+				AddToStatement(dostmt, curr);
+				curr = next;
+			}
+			AddToStatement(block, dostmt);
+			F->currStmt = dostmt;
+		}
 	}
 	stmt->line = F->pc;
-	AddToBlock(F->blockPtr, stmt);
+	AddToStatement(F->currStmt, stmt);
 	F->lastLine = F->pc;
 }
 
@@ -691,14 +688,14 @@ void RawAddStatement(Function* F, StringBuffer* str) {
 	RawAddAstStatement(F, stmt);
 }
 
-void FlushWhile1(Function * F) {
+void FlushWhile1(Function* F) {
 	LoopItem* walk = F->loop_ptr;
 	StringBuffer* str = StringBuffer_new(NULL);
 
 	if (walk->type == WHILE && walk->start <= F->pc && walk->body == -1) {
-		LoopStatement* whilestmt = MakeLoopStatement(WHILE_STMT, strdup("1"));
-		RawAddAstStatement(F, cast(AstStatement*, whilestmt));
-		F->blockPtr = whilestmt->body;
+		AstStatement* whilestmt = MakeLoopStatement(WHILE_STMT, strdup("1"));
+		RawAddAstStatement(F, whilestmt);
+		F->currStmt = whilestmt;
 		walk->body = walk->start;
 		walk = walk->parent;
 	}
@@ -706,7 +703,7 @@ void FlushWhile1(Function * F) {
 	StringBuffer_delete(str);
 }
 
-void FlushBoolean(Function * F) {
+void FlushBoolean(Function* F) {
 	FlushElse(F);
 	if (F->bools.size == 0) {
 		FlushWhile1(F);
@@ -716,8 +713,8 @@ void FlushBoolean(Function * F) {
 		int endif = 0, thenaddr = 0;
 		char* test = NULL;
 		StringBuffer* str = StringBuffer_new(NULL);
-		LogicExp * exp = NULL;
-		LoopItem * walk = NULL;
+		LogicExp* exp = NULL;
+		LoopItem* walk = NULL;
 
 		exp = MakeBoolean(F, &endif, &thenaddr);
 		if (error) goto FlushBoolean_CLEAR_HANDLER1;
@@ -735,16 +732,18 @@ void FlushBoolean(Function * F) {
 		}
 
 		if (flushWhile){
-			LoopStatement* whilestmt = MakeLoopStatement(WHILE_STMT, test);
-			RawAddAstStatement(F, cast(AstStatement*, whilestmt));
-			F->blockPtr = whilestmt->body;
+			AstStatement* whilestmt = MakeLoopStatement(WHILE_STMT, test);
+			test = NULL;
+			RawAddAstStatement(F, whilestmt);
+			F->currStmt = whilestmt;
 		} else {
-			IfStatement* ifstmt = NULL;
+			AstStatement* ifstmt = NULL;
 			FlushWhile1(F);
 			StoreEndifAddr(F, endif);
 			ifstmt = MakeIfStatement(test);
-			RawAddAstStatement(F, cast(AstStatement*, ifstmt));
-			F->blockPtr = ifstmt->thenBlock;
+			test = NULL;
+			RawAddAstStatement(F, ifstmt);
+			F->currStmt = cast(AstStatement*, ifstmt->sub->head);
 			F->elseWritten = 0;
 		}
 
@@ -757,8 +756,7 @@ FlushBoolean_CLEAR_HANDLER1:
 	F->testpending = 0;
 }
 
-void DeclareLocalsAddStatement(Function * F, StringBuffer * statement)
-{
+void DeclareLocalsAddStatement(Function* F, StringBuffer* statement) {
 	if (F->pc > 0) {
 		FlushBoolean(F);
 		if (error) return;
@@ -773,7 +771,7 @@ void AddStatement(Function* F, StringBuffer* statement) {
 	RawAddStatement(F, statement);
 }
 
-void AddAstStatement(Function * F, AstStatement* stmt) {
+void AddAstStatement(Function* F, AstStatement* stmt) {
 	FlushBoolean(F);
 	if (error) return;
 
@@ -795,16 +793,16 @@ void FlushElse(Function* F) {
 			test = WriteBoolean(exp, &thenaddr, &endif, 0);
 			if (error) goto FlushElse_CLEAR_HANDLER1;
 			StoreEndifAddr(F, endif);
-			if (F->blockPtr->type == IF_THEN_BLOCK) {
-				IfStatement* newif = NULL;
-				IfStatement* lastif = cast(IfStatement*, F->blockPtr->parent);
-				F->blockPtr = lastif->elseBlock;
+			if (F->currStmt->type == IF_THEN_STMT) {
+				AstStatement* newif = NULL;
+				AstStatement* lastif = F->currStmt->parent;
+				F->currStmt = cast(AstStatement*, lastif->sub->tail);
 				newif = MakeIfStatement(test);
-				RawAddAstStatement(F, cast(AstStatement*, newif));
-				F->blockPtr = newif->thenBlock;
+				RawAddAstStatement(F, newif);
+				F->currStmt = cast(AstStatement*, newif->sub->head);
 				F->elseWritten = 0;
 			} else {
-				SET_ERROR(F," there should be a elseif, but not in if_then");
+				SET_ERROR(F,"unexpected 'else' of 'if'");
 				goto FlushElse_CLEAR_HANDLER1;
 			}
 
@@ -815,17 +813,16 @@ FlushElse_CLEAR_HANDLER1:
 			StringBuffer_delete(str);
 			if (error) return;
 		} else {
-			if (F->blockPtr->type == IF_THEN_BLOCK) {
-				IfStatement* lastif = cast(IfStatement*, F->blockPtr->parent);
-				F->blockPtr = lastif->elseBlock;
+			if (F->currStmt->type == IF_THEN_STMT) {
+				AstStatement* lastif = F->currStmt->parent;
+				F->currStmt = cast(AstStatement*, lastif->sub->tail);
 				/* this test circumvents jump-to-jump optimization at
 				the end of if blocks */
 				if (!PeekEndifAddr(F, F->pc + 3))
 					StoreEndifAddr(F, F->elsePending);
 				F->elseWritten = 1;
 			} else {
-				SET_ERROR(F," there should be a else, but not in if_then");
-				goto FlushElse_CLEAR_HANDLER1;
+				SET_ERROR(F,"unexpected 'else' of 'if'");
 			}
 		}
 		F->elsePending = 0;
@@ -837,16 +834,14 @@ FlushElse_CLEAR_HANDLER1:
 * -------------------------------------------------------------------------
 */
 
-void DeclarePendingLocals(Function * F);
+void DeclarePendingLocals(Function* F);
 
-void AssignGlobalOrUpvalue(Function * F, const char* dest, const char* src)
-{
+void AssignGlobalOrUpvalue(Function* F, const char* dest, const char* src) {
 	F->testjump = 0;
 	AddToVarList(&(F->vpend), luadec_strdup(dest), luadec_strdup(src), -1);
 }
 
-void AssignReg(Function * F, int reg, const char* src, int prio, int mayTest)
-{
+void AssignReg(Function* F, int reg, const char* src, int prio, int mayTest) {
 	char* dest = REGISTER(reg);
 	char* nsrc = NULL;
 
@@ -864,7 +859,9 @@ void AssignReg(Function * F, int reg, const char* src, int prio, int mayTest)
 	CALL(reg) = 0;
 	F->Rprio[reg] = prio;
 
-	if (debug) { printf("SET_CTR(Tpend) = %d \n", SET_CTR(F->tpend)); }
+	if (debug) {
+		printf("SET_CTR(Tpend) = %d \n", SET_CTR(F->tpend));
+	}
 
 	nsrc = luadec_strdup(src);
 	if (F->testpending == reg+1 && mayTest && F->testjump == F->pc+2) {
@@ -901,9 +898,10 @@ void AssignReg(Function * F, int reg, const char* src, int prio, int mayTest)
 * Table Functions
 */
 
-DecTableItem *NewTableItem(const char *value, int num, const char *key) {
-	DecTableItem *self = (DecTableItem*)calloc(1, sizeof(DecTableItem));
-	((ListItem *) self)->next = NULL;
+DecTableItem* NewTableItem(const char* value, int num, const char* key) {
+	DecTableItem* self = (DecTableItem*)calloc(1, sizeof(DecTableItem));
+	self->super.prev = NULL;
+	self->super.next = NULL;
 	self->key = luadec_strdup(key);
 	self->value = luadec_strdup(value);
 	self->numeric = num;
@@ -926,67 +924,68 @@ void DeleteTableItem(DecTableItem* item) {
 	free(item);
 }
 
-int MatchTable(DecTable * tbl, int *reg)
-{
+int MatchTable(DecTable* tbl, int* reg) {
 	return tbl->reg == *reg;
 }
 
-void DeleteTable(DecTable * tbl)
-{
+void DeleteTable(DecTable* tbl) {
 	ClearList(&(tbl->keyed), (ListItemFn)ClearTableItem);
 	ClearList(&(tbl->numeric), (ListItemFn)ClearTableItem);
 	free(tbl);
 }
 
-void CloseTable(Function * F, int r)
-{
-	DecTable *tbl = (DecTable *) RemoveFromList(&(F->tables), FindFromListTail(&(F->tables), (ListItemCmpFn)MatchTable, &r));
+void CloseTable(Function* F, int r) {
+	DecTable* tbl = (DecTable*)RemoveFromList(&(F->tables), FindFromListTail(&(F->tables), (ListItemCmpFn)MatchTable, &r));
 	DeleteTable(tbl);
 	F->Rtabl[r] = 0;
 }
 
-char *PrintTable(Function * F, int r, int returnCopy)
-{
-	char *result = NULL;
+char* PrintTable(Function* F, int r, int returnCopy) {
+	char* result = NULL;
 	int numerics = 0;
-	DecTableItem *item;
-	StringBuffer *str = StringBuffer_new("{");
-	DecTable *tbl = (DecTable *) FindFromListTail(&(F->tables), (ListItemCmpFn) MatchTable,&r);
+	DecTableItem* item;
+	StringBuffer* str = StringBuffer_new("{");
+	DecTable* tbl = (DecTable*)FindFromListTail(&(F->tables), (ListItemCmpFn)MatchTable, &r);
 	if (tbl == NULL) {
 		F->Rtabl[r] = 0;
 		return F->R[r];
 	}
-	item = (DecTableItem *) tbl->numeric.head;
+	item = cast(DecTableItem*, tbl->numeric.head);
 	if (item) {
-		if (item->value[strlen(item->value)-1] == '}')
+		if (item->value[strlen(item->value)-1] == '}') {
 			StringBuffer_add(str, "\n");
+		}
 		StringBuffer_add(str, item->value);
-		item = (DecTableItem *) item->super.next;
+		item = cast(DecTableItem*, item->super.next);
 		numerics = 1;
 		while (item) {
 			StringBuffer_add(str, ", ");
-			if (item->value[strlen(item->value)-1] == '}')
+			if (item->value[strlen(item->value)-1] == '}') {
 				StringBuffer_add(str, "\n");
+			}
 			StringBuffer_add(str, item->value);
-			item = (DecTableItem *) item->super.next;
+			item = cast(DecTableItem*, item->super.next);
 		}
 	}
-	item = (DecTableItem *) tbl->keyed.head;
+	item = cast(DecTableItem*, tbl->keyed.head);
 	if (item) {
 		int first;
-		if (numerics)
+		if (numerics) {
 			StringBuffer_add(str, "; ");
+		}
 		first = 1;
 		while (item) {
-			if (first)
+			if (first) {
 				first = 0;
-			else
+			} else {
 				StringBuffer_add(str, ", ");
-			if (item->value[strlen(item->value)-1] == '}')
+			}
+			if (item->value[strlen(item->value)-1] == '}') {
 				StringBuffer_add(str, "\n");
+			}
 			MakeIndex(F,str,item->key,TABLE);
 			StringBuffer_addPrintf(str, " = %s", item->value);
-			item = (DecTableItem *) item->super.next;
+			item = cast(DecTableItem*, item->super.next);
 		}
 	}
 	StringBuffer_addChar(str, '}');
@@ -1002,10 +1001,10 @@ char *PrintTable(Function * F, int r, int returnCopy)
 	return result;
 }
 
-DecTable *NewTable(int r, Function * F, int b, int c, int pc) // Lua5.1 specific
-{
-	DecTable *self = (DecTable*)calloc(1, sizeof(DecTable));
-	((ListItem *) self)->next = NULL;
+DecTable* NewTable(int r, Function* F, int b, int c, int pc) {
+	DecTable* self = (DecTable*)calloc(1, sizeof(DecTable));
+	self->super.prev = NULL;
+	self->super.next = NULL;
 	InitList(&(self->numeric));
 	InitList(&(self->keyed));
 	self->reg = r;
@@ -1018,10 +1017,9 @@ DecTable *NewTable(int r, Function * F, int b, int c, int pc) // Lua5.1 specific
 	return self;
 }
 
-void AddToTable(Function* F, DecTable * tbl, const char *value, const char *key)
-{
-	DecTableItem *item;
-	List *type;
+void AddToTable(Function* F, DecTable* tbl, const char* value, const char* key) {
+	DecTableItem* item;
+	List* type;
 	int index;
 	if (key == NULL) {
 		type = &(tbl->numeric);
@@ -1033,28 +1031,26 @@ void AddToTable(Function* F, DecTable * tbl, const char *value, const char *key)
 		index = 0;
 	}
 	item = NewTableItem(value, index, key);
-	AddToList(type, (ListItem *) item);
+	AddToList(type, (ListItem*)item);
 }
 
-void StartTable(Function * F, int r, int b, int c, int pc)
-{
-	DecTable *tbl = NewTable(r, F, b, c, pc);
-	AddToListHead(&(F->tables), (ListItem *) tbl);
+void StartTable(Function* F, int r, int b, int c, int pc) {
+	DecTable* tbl = NewTable(r, F, b, c, pc);
+	AddToListHead(&(F->tables), (ListItem*)tbl);
 	F->Rtabl[r] = 1;
 }
 
-void SetList(Function * F, int a, int b, int c)
-{
+void SetList(Function* F, int a, int b, int c) {
 	int i;
-	DecTable *tbl = (DecTable *) FindFromListTail(&(F->tables), (ListItemCmpFn) MatchTable,&a);
+	DecTable* tbl = (DecTable*)FindFromListTail(&(F->tables), (ListItemCmpFn)MatchTable, &a);
 	if (tbl == NULL) {
 		SET_ERROR(F,"Unhandled construct in list (SETLIST)");
 		return;
 	}
 	if (b == 0) {
-		const char *rstr;
+		const char* rstr;
 		i = 1;
-		do{
+		while (1) {
 			rstr = GetR(F, a + i);
 			if (error)
 				return;
@@ -1062,7 +1058,7 @@ void SetList(Function * F, int a, int b, int c)
 				break;
 			AddToTable(F, tbl, rstr, NULL); // Lua5.1 specific TODO: it's not really this :(
 			i++;
-		} while (1);
+		};
 	} //should be {...} or func(func()) ,when b == 0, that will use all avaliable reg from R(a)
 
 	for (i = 1; i <= b; i++) {
@@ -1073,14 +1069,13 @@ void SetList(Function * F, int a, int b, int c)
 	}
 }
 
-void UnsetPending(Function * F, int r)
-{
+void UnsetPending(Function* F, int r) {
 	if (!IS_VARIABLE(r)) {
 		if (!PENDING(r) && !CALL(r)) {
 			if (guess_locals) {
 				SET_ERROR(F,"Confused about usage of registers!");
 			} else {
-				char *s;
+				char* s;
 				SET_ERROR(F,"Confused about usage of registers, missing locals? Creating them");
 				s = luadec_strdup(REGISTER(r));
 				DeclareLocal(F,r,s);
@@ -1092,9 +1087,8 @@ void UnsetPending(Function * F, int r)
 	}
 }
 
-int SetTable(Function * F, int a, char *bstr, char *cstr)
-{
-	DecTable *tbl = (DecTable *) FindFromListTail(&(F->tables), (ListItemCmpFn)MatchTable, &a);
+int SetTable(Function* F, int a, char* bstr, char* cstr) {
+	DecTable* tbl = (DecTable*)FindFromListTail(&(F->tables), (ListItemCmpFn)MatchTable, &a);
 	if (tbl==NULL) {
 		UnsetPending(F, a);
 		return 0;
@@ -1107,25 +1101,25 @@ int SetTable(Function * F, int a, char *bstr, char *cstr)
 *	Boolop Functions
 */
 
-BoolOp * NewBoolOp(){
+BoolOp* NewBoolOp() {
 	BoolOp* value = (BoolOp*)calloc(1, sizeof(BoolOp));
+	value->super.prev = NULL;
+	value->super.next = NULL;
 	value->op1 = NULL;
 	value->op2 = NULL;
-	((ListItem*)value)->next = NULL;
-	((ListItem*)value)->prev = NULL;
 	return value;
 }
 
-BoolOp * MakeBoolOp(char * op1, char * op2, OpCode op, int neg,	int pc,	int dest){
+BoolOp* MakeBoolOp(char* op1, char* op2, OpCode op, int neg, int pc, int dest) {
 	BoolOp* value = (BoolOp*)calloc(1, sizeof(BoolOp));
+	value->super.prev = NULL;
+	value->super.next = NULL;
 	value->op1 = op1;
 	value->op2 = op2;
 	value->op = op;
 	value->neg = neg;
 	value->pc = pc;
 	value->dest = dest;
-	((ListItem*)value)->next = NULL;
-	((ListItem*)value)->prev = NULL;
 	return value;
 }
 
@@ -1151,17 +1145,11 @@ void DeleteBoolOp(BoolOp* ptr){
 * -------------------------------------------------------------------------
 */
 
-Function *NewFunction(const Proto * f)
-{
+Function* NewFunction(const Proto* f) {
 	int i;
-	Function *self;
-
-	/*
-	* calloc, to ensure all parameters are 0/NULL
-	*/
-	self = (Function*)calloc(1, sizeof(Function));
-	self->funcBlock = MakeAstBlock(FUNCTION_BODY);
-	self->blockPtr = self->funcBlock;
+	Function* self = (Function*)calloc(1, sizeof(Function));
+	self->funcBlock = MakeBlockStatement();
+	self->currStmt = self->funcBlock;
 	self->f = f;
 	InitList(&(self->vpend));
 	self->tpend = (IntSet*)calloc(1, sizeof(IntSet));
@@ -1177,15 +1165,14 @@ Function *NewFunction(const Proto * f)
 	self->decompiledCode = StringBuffer_new(NULL);
 
 	InitList(&(self->bools));
-	
+
 	self->intspos = 0;
 	return self;
 }
 
-void DeleteFunction(Function * self)
-{
+void DeleteFunction(Function* self) {
 	int i;
-	DeleteAstBlock(self->funcBlock);
+	DeleteAstStatement(self->funcBlock);
 	ClearList(&(self->bools), (ListItemFn)ClearBoolOp);
 	/*
 	* clean up registers
@@ -1206,10 +1193,9 @@ void DeleteFunction(Function * self)
 	free(self);
 }
 
-void DeclareVariable(Function * F, const char *name, int reg);
+void DeclareVariable(Function* F, const char* name, int reg);
 
-const char *GetR(Function * F, int r)
-{
+const char* GetR(Function* F, int r) {
 	if (IS_TABLE(r)) {
 		PrintTable(F, r, 0);
 		if (error) return NULL;
@@ -1218,34 +1204,34 @@ const char *GetR(Function * F, int r)
 	if (error) return NULL;
 
 	if (F->R[r] == NULL) {
-		StringBuffer* sb=StringBuffer_new("R%rrrrr%_PC%pcccccccc%");
-		StringBuffer_printf(sb,"R%d_PC%d",r,F->pc);
-		DeclareVariable(F,(const char *)(sb->buffer),r);
+		StringBuffer* sb = StringBuffer_new("R%rrrrr%_PC%pcccccccc%");
+		StringBuffer_printf(sb, "R%d_PC%d", r, F->pc);
+		DeclareVariable(F, sb->buffer, r);
 		//return sb->buffer;
 		StringBuffer_delete(sb);
 	}//dirty hack , some numeric FOR loops may cause error
 	return F->R[r];
 }
 
-void DeclareVariable(Function * F, const char *name, int reg)
-{
+void DeclareVariable(Function* F, const char* name, int reg) {
 	F->Rvar[reg] = 1;
-	if (F->R[reg])
+	if (F->R[reg]) {
 		free(F->R[reg]);
+	}
 	F->R[reg] = luadec_strdup(name);
 	F->Rprio[reg] = 0;
 	UnsetPending(F, reg);
 	if (error) return;
 }
 
-void OutputAssignments(Function * F)
-{
+void OutputAssignments(Function* F) {
 	int i, srcs;
 	ListItem *walk, *tail;
-	StringBuffer *vars = StringBuffer_new(NULL);
-	StringBuffer *exps = StringBuffer_new(NULL);
-	if (!SET_IS_EMPTY(F->tpend))
+	StringBuffer* vars = StringBuffer_new(NULL);
+	StringBuffer* exps = StringBuffer_new(NULL);
+	if (!SET_IS_EMPTY(F->tpend)) {
 		goto OutputAssignments_ERROR_HANDLER;
+	}
 	srcs = 0;
 	walk = F->vpend.head;
 	tail = F->vpend.tail;
@@ -1265,8 +1251,9 @@ void OutputAssignments(Function * F)
 		StringBuffer_prepend(vars, dest);
 
 		if (src && (srcs > 0 || (srcs == 0 && strcmp(src, "nil") != 0) || walk == tail )) {
-			if (srcs > 0)
+			if (srcs > 0) {
 				StringBuffer_prepend(exps, ", ");
+			}
 			StringBuffer_prepend(exps, src);
 			srcs++;
 		}
@@ -1281,8 +1268,9 @@ void OutputAssignments(Function * F)
 		StringBuffer_add(vars, " = ");
 		StringBuffer_add(vars, StringBuffer_getRef(exps));
 		AddStatement(F, vars);
-		if (error)
+		if (error) {
 			goto OutputAssignments_ERROR_HANDLER;
+		}
 	}
 OutputAssignments_ERROR_HANDLER:
 	ClearList(&(F->vpend), (ListItemFn)ClearVarListItem);
@@ -1290,7 +1278,7 @@ OutputAssignments_ERROR_HANDLER:
 	StringBuffer_delete(exps);
 }
 
-void ReleaseLocals(Function * F) {
+void ReleaseLocals(Function* F) {
 	int i;
 	for (i = F->f->sizelocvars-1; i >=0 ; i--) {
 		if (F->f->locvars[i].endpc == F->pc) {
@@ -1305,24 +1293,23 @@ void ReleaseLocals(Function * F) {
 			}
 			F->Rvar[r] = 0;
 			F->Rprio[r] = 0;
-			if (!F->ignore_for_variables && !F->released_local)
+			if (!F->ignore_for_variables && !F->released_local) {
 				F->released_local = F->f->locvars[i].startpc;
+			}
 		}
 	}
 	F->ignore_for_variables = 0;
 }
 
-void DeclareLocals(Function * F)
-{
+void DeclareLocals(Function* F) {
 	int i;
 	int locals;
 	int internalLocals = 0;
 	//int loopstart;
 	//int loopvars;
 	int loopconvert;
-	StringBuffer *str;
-	StringBuffer *rhs;
-	char *names[MAXARG_A];
+	StringBuffer *str, *rhs;
+	char* names[MAXARG_A];
 	int startparams = 0;
 	/*
 	* Those are declaration of parameters.
@@ -1433,7 +1420,7 @@ void DeclareLocals(Function * F)
 	F->freeLocal += locals + internalLocals;
 }
 
-void PrintFunctionCheck(Function * F){
+void PrintFunctionCheck(Function* F) {
 	if (F->nextEndif){
 		// if you come here, something must be wrong
 		// F->nextEndif should be cleared in function int GetEndifAddr(Function* F, int addr)
@@ -1441,7 +1428,7 @@ void PrintFunctionCheck(Function * F){
 		StringBuffer* str = StringBuffer_new("-- WARNING: F->nextEndif is not empty. Unhandled nextEndif->addr = ");
 		AstStatement* stmt = NULL;
 		Endif* ptr = F->nextEndif;
-		while(ptr){			
+		while (ptr) {			
 			StringBuffer_addPrintf(str, "%d ", ptr->addr);
 			F->nextEndif = ptr->next;
 			free(ptr);
@@ -1449,17 +1436,16 @@ void PrintFunctionCheck(Function * F){
 		}
 		stmt = MakeSimpleStatement(StringBuffer_getBuffer(str));
 		stmt->line = F->pc;
-		AddToBlock(F->blockPtr, stmt);
+		AddToStatement(F->currStmt, stmt);
 		StringBuffer_delete(str);
 	}
 }
 
-char* PrintFunction(Function * F)
-{
+char* PrintFunction(Function* F) {
 	char* result;
 	PrintFunctionCheck(F);
 	StringBuffer_prune(F->decompiledCode);
-	PrintAstBlock(F->funcBlock, F->decompiledCode, 0);
+	PrintAstSub(F->funcBlock->sub, F->decompiledCode, 0);
 	result = StringBuffer_getBuffer(F->decompiledCode);
 	return result;
 }
@@ -1468,13 +1454,12 @@ char* PrintFunction(Function * F)
 * -------------------------------------------------------------------------
 */
 
-char *RegisterOrConstant(Function * F, int r)
-{
+char* RegisterOrConstant(Function* F, int r) {
 	if (IS_CONSTANT(r)) {
 		return DecompileConstant(F->f, INDEXK(r));
 	} else {
-		char *copy;
-		const char *reg = GetR(F, r);
+		char* copy;
+		const char* reg = GetR(F, r);
 		if (error)
 			return NULL;
 		copy = luadec_strdup(reg);
@@ -1503,14 +1488,13 @@ const char* keywords[] = {
 };
 
 /* type: DOT=0,SELF=1,TABLE=2
- * input and output
- * rstr  "a"  " a"    "not"    a
- * SELF  :a   ERROR   ERROR    ERROR
- * DOT   .a   [" a"]  ["not"]  [a]
- * TABLE  a   [" a"}  ["not"]  [a]
- */
-void MakeIndex(Function* F, StringBuffer * str, char* rstr, IndexType type)
-{
+* input and output
+* rstr  "a"  " a"    "not"    a
+* SELF  :a   ERROR   ERROR    ERROR
+* DOT   .a   [" a"]  ["not"]  [a]
+* TABLE  a   [" a"}  ["not"]  [a]
+*/
+void MakeIndex(Function* F, StringBuffer* str, char* rstr, IndexType type) {
 	int len, dot, i;
 	char lastchar;
 	char* rawrstr;
@@ -1548,15 +1532,15 @@ void MakeIndex(Function* F, StringBuffer * str, char* rstr, IndexType type)
 	if (dot == 1) {
 		switch (type) {
 			// type value DOT=0;SELF=1;TABLE=2;
-			case SELF:
-				StringBuffer_addPrintf(str, ":%s", rawrstr);
-				break;
-			case DOT:
-				StringBuffer_addPrintf(str, ".%s", rawrstr);
-				break;
-			case TABLE:
-				StringBuffer_addPrintf(str, "%s", rawrstr);
-				break;
+		case SELF:
+			StringBuffer_addPrintf(str, ":%s", rawrstr);
+			break;
+		case DOT:
+			StringBuffer_addPrintf(str, ".%s", rawrstr);
+			break;
+		case TABLE:
+			StringBuffer_addPrintf(str, "%s", rawrstr);
+			break;
 		}
 	} else{
 		StringBuffer_addPrintf(str, "[%s]", rstr);
@@ -1569,7 +1553,7 @@ void MakeIndex(Function* F, StringBuffer * str, char* rstr, IndexType type)
 	StringBuffer_delete(rawrstrbuff);
 }
 
-void FunctionHeader(Function * F) {
+void FunctionHeader(Function* F) {
 	int saveIndent = F->indent;
 	const Proto* f = F->f;
 	StringBuffer* str = StringBuffer_new(NULL);
@@ -1583,33 +1567,33 @@ void FunctionHeader(Function * F) {
 		}
 		StringBuffer_addPrintf(str, "%s", LOCAL(i));
 		//StringBuffer_addPrintf(str, "l_%d_%d", functionnum, i);
-		if (f->is_vararg)
+		if (f->is_vararg) {
 			StringBuffer_add(str, ", ...");
+		}
 		StringBuffer_addPrintf(str, ")");
 		AddStatement(F, str);
-		if (error)
-			return;
+		if (error) return;
 		StringBuffer_prune(str);
 	} else if (!IsMain(f)) {
-		if (f->is_vararg)
+		if (f->is_vararg) {
 			StringBuffer_add(str, "(...)");
-		else
+		} else {
 			StringBuffer_add(str, "()");
+		}
 		AddStatement(F, str);
-		if (error)
-			return;
+		if (error) return;
 		StringBuffer_prune(str);
 	}
 	F->indent = saveIndent;
-	if (!IsMain(f))
+	if (!IsMain(f)) {
 		F->indent++;
+	}
 	StringBuffer_delete(str);
 }
 
-void ShowState(Function * F)
-{
+void ShowState(Function* F) {
 	int i;
-	ListItem *walk;
+	ListItem* walk;
 	fprintf(stddebug, "\n");
 	fprintf(stddebug, "next bool: %d\n", F->bools.size);
 	fprintf(stddebug, "locals(%d): ", F->freeLocal);
@@ -1647,10 +1631,10 @@ void ShowState(Function * F)
 
 #define TRY(x)  x; if (error) goto errorHandler
 
-void DeclareLocal(Function * F, int ixx, const char* value) {
+void DeclareLocal(Function* F, int ixx, const char* value) {
 	if (!IS_VARIABLE(ixx)) {
 		char x[10];
-		StringBuffer *str = StringBuffer_new(NULL);
+		StringBuffer* str = StringBuffer_new(NULL);
 
 		sprintf(x,"l_%d_%d",functionnum, ixx);
 		DeclareVariable(F, x, ixx);
@@ -1662,11 +1646,11 @@ void DeclareLocal(Function * F, int ixx, const char* value) {
 	}
 }
 
-void DeclarePendingLocals(Function * F) {
+void DeclarePendingLocals(Function* F) {
 	int i;
 	int maxnum = 0;
 	int nums[201];
-	StringBuffer *str = StringBuffer_new(NULL);
+	StringBuffer* str = StringBuffer_new(NULL);
 	if (SET_CTR(F->tpend)>0) {
 		if (guess_locals) {
 			StringBuffer_set(str,"-- WARNING: pending registers.");
@@ -1688,58 +1672,57 @@ void DeclarePendingLocals(Function * F) {
 }
 
 Proto* combine(lua_State* L, int n);
-char* ProcessCode(const Proto * f, int indent, int func_checking);
+char* ProcessCode(const Proto* f, int indent, int func_checking);
 
-int FunctionCheck(const Proto * f, int indent, StringBuffer *str){
-    lua_State* L;
-    Proto* fnew;
-    int check_result;
-    char* decompiled = ProcessCode(f, indent, 1);
-    L=lua_open();
-    if (luaL_loadstring(L, decompiled)!=0){
-        //TODO check fail compile fail
-        StringBuffer_set(str, "--check fail : cannot compile");
-        check_result = -1;
-    }else{
-        fnew = combine(L, 1);
-        if( !IsMain(f)){
-            fnew = fnew->p[0];
-        }
-        check_result = CompareProto(f, fnew, str);
-    }
-    lua_close(L);
-    free(decompiled);
-    if(check_result == 0){
-        StringBuffer_set(str, "-- check ok");
-    }
-    return check_result;
+int FunctionCheck(const Proto* f, int indent, StringBuffer* str) {
+	lua_State* L;
+	Proto* fnew;
+	int check_result;
+	char* decompiled = ProcessCode(f, indent, 1);
+	L = lua_open();
+	if (luaL_loadstring(L, decompiled) != 0) {
+		//TODO check fail compile fail
+		StringBuffer_set(str, "-- check fail : cannot compile");
+		check_result = -1;
+	} else {
+		fnew = combine(L, 1);
+		if (!IsMain(f)) {
+			fnew = fnew->p[0];
+		}
+		check_result = CompareProto(f, fnew, str);
+	}
+	lua_close(L);
+	free(decompiled);
+	if (check_result == 0) {
+		StringBuffer_set(str, "-- check ok");
+	}
+	return check_result;
 }
 
-int CompareProto(const Proto* f1, const Proto* f2, StringBuffer *str){
-    int diff = 0;
+int CompareProto(const Proto* f1, const Proto* f2, StringBuffer* str) {
+	int diff = 0;
 	StringBuffer_set(str, "-- check fail :");
-    if(f1->numparams != f2->numparams){
-        diff = 1;
-        StringBuffer_add(str, " different params size;");
-    }
-    if(f1->sizeupvalues != f2->sizeupvalues){
+	if (f1->numparams != f2->numparams) {
 		diff = 1;
-        StringBuffer_add(str, " different upvalues size;");
-    }
-    if(f1->sizecode != f2->sizecode){
+		StringBuffer_add(str, " different params size;");
+	}
+	if (f1->sizeupvalues != f2->sizeupvalues) {
 		diff = 1;
-        StringBuffer_add(str, " different code size;");
-    }
-    return diff;
+		StringBuffer_add(str, " different upvalues size;");
+	}
+	if (f1->sizecode != f2->sizecode) {
+		diff = 1;
+		StringBuffer_add(str, " different code size;");
+	}
+	return diff;
 }
 
-char* PrintFunctionOnlyParamsAndUpvalues(const Proto * f, int indent)
-{
+char* PrintFunctionOnlyParamsAndUpvalues(const Proto* f, int indent) {
 	int i = 0;
 	int baseIndent = indent;
-    char* output = NULL;
-	StringBuffer *str = StringBuffer_new(NULL);
-	Function *F = NewFunction(f);
+	char* output = NULL;
+	StringBuffer* str = StringBuffer_new(NULL);
+	Function* F = NewFunction(f);
 	F->loop_tree->indent = indent;
 	F->indent = indent;
 	error = NULL;
@@ -1756,13 +1739,13 @@ char* PrintFunctionOnlyParamsAndUpvalues(const Proto * f, int indent)
 	}
 	F->freeLocal = f->numparams;
 
-    TRY(FunctionHeader(F));
+	TRY(FunctionHeader(F));
 
-	if ( f->sizeupvalues > 0){
-        StringBuffer_set(str, "_function_use_upvalues_as_params_(");
-        listUpvalues(F, str);
-        StringBuffer_add(str, ")");
-        TRY(RawAddStatement(F, str));
+	if (f->sizeupvalues > 0) {
+		StringBuffer_set(str, "_function_use_upvalues_as_params_(");
+		listUpvalues(F, str);
+		StringBuffer_add(str, ")");
+		TRY(RawAddStatement(F, str));
 	}
 
 errorHandler:
@@ -1772,31 +1755,30 @@ errorHandler:
 	return output;
 }
 
-int listUpvalues(Function *F, StringBuffer *str){
-    int i = 0;
-    for (i = 0; i < F->f->sizeupvalues - 1; i++) {
-        StringBuffer_add(str,UPVALUE(i));
-        StringBuffer_add(str," , ");
-    }
-    i = F->f->sizeupvalues - 1;
-    StringBuffer_add(str,UPVALUE(i));
-    return F->f->sizeupvalues;
+int listUpvalues(Function* F, StringBuffer* str) {
+	int i = 0;
+	for (i = 0; i < F->f->sizeupvalues - 1; i++) {
+		StringBuffer_add(str,UPVALUE(i));
+		StringBuffer_add(str," , ");
+	}
+	i = F->f->sizeupvalues - 1;
+	StringBuffer_add(str,UPVALUE(i));
+	return F->f->sizeupvalues;
 }
 
-int isTestOpCode(OpCode op){
+int isTestOpCode(OpCode op) {
 	return ( op == OP_EQ || op == OP_LE || op == OP_LT || op == OP_TEST || op == OP_TESTSET );
 }
 
-char* ProcessCode(const Proto * f, int indent, int func_checking)
-{
+char* ProcessCode(const Proto* f, int indent, int func_checking) {
 	int i = 0;
 
 	int ignoreNext = 0;
 
-	Function *F;
-	StringBuffer *str = StringBuffer_new(NULL);
+	Function* F;
+	StringBuffer* str = StringBuffer_new(NULL);
 
-	const Instruction *code = f->code;
+	const Instruction* code = f->code;
 	int pc, n = f->sizecode;
 	int baseIndent = indent;
 
@@ -1822,36 +1804,36 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 	}
 	F->freeLocal = f->numparams;
 
-	if ( f->sizeupvalues > 0){
-        if ( func_checking == 1){
-            StringBuffer_set(str, "local ");
-        }else{
-            StringBuffer_set(str, "-- upvalues: ");
-        }
-        listUpvalues(F, str);
+	if ( f->sizeupvalues > 0) {
+		if ( func_checking == 1) {
+			StringBuffer_set(str, "local ");
+		} else {
+			StringBuffer_set(str, "-- upvalues: ");
+		}
+		listUpvalues(F, str);
 	}
 
-	if( !IsMain(f)){
-        if ( func_checking == 1){
-            if ( f->sizeupvalues > 0){
-                TRY(RawAddStatement(F, str));
-            }
-            StringBuffer_set(str, "function _function_to_compare_");
-            TRY(RawAddStatement(F, str));
-            TRY(FunctionHeader(F));
-        }else{
-            TRY(FunctionHeader(F));
-            if ( f->sizeupvalues > 0){
-                TRY(RawAddStatement(F, str));
-            }
-        }
+	if (!IsMain(f)) {
+		if (func_checking == 1) {
+			if (f->sizeupvalues > 0) {
+				TRY(RawAddStatement(F, str));
+			}
+			StringBuffer_set(str, "function _function_to_compare_");
+			TRY(RawAddStatement(F, str));
+			TRY(FunctionHeader(F));
+		} else {
+			TRY(FunctionHeader(F));
+			if (f->sizeupvalues > 0) {
+				TRY(RawAddStatement(F, str));
+			}
+		}
 	}
-    StringBuffer_prune(str);
+	StringBuffer_prune(str);
 
-	if( func_check == 1 && func_checking == 0){
-        int func_check_result = FunctionCheck(f, indent, str);
-        TRY(RawAddStatement(F, str));
-    }
+	if (func_check == 1 && func_checking == 0) {
+		int func_check_result = FunctionCheck(f, indent, str);
+		TRY(RawAddStatement(F, str));
+	}
 
 	if ((f->is_vararg&1) && (f->is_vararg&2)) {
 		TRY(DeclareVariable(F, "arg", F->freeLocal));
@@ -1864,72 +1846,72 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 		}
 	}
 
-	for( pc = n - 1; pc >= 0; pc-- ){
+	for (pc = n - 1; pc >= 0; pc--) {
 		Instruction i = code[pc];
 		OpCode o = GET_OPCODE(i);
 		int sbc = GETARG_sBx(i);
 		int dest = sbc + pc + 1;
 		int real_end = GetJmpAddr(F,pc + 1);
 
-		while( pc < F->loop_ptr->start){
+		while (pc < F->loop_ptr->start) {
 			F->loop_ptr = F->loop_ptr->parent;
 		}
 
-		if( o == OP_CLOSE ){
+		if (o == OP_CLOSE) {
 			int a = GETARG_A(i);
 			AddToSet(F->do_opens, f->locvars[a].startpc);
 			AddToSet(F->do_closes, f->locvars[a].endpc);
-		}else if( o == OP_FORLOOP ){
+		} else if (o == OP_FORLOOP) {
 			LoopItem* item = NewLoopItem(FORLOOP, dest-1, dest, dest, pc, real_end);
 			AddToLoopTree(F, item);
-		}else if( o == OP_JMP ){
+		} else if (o == OP_JMP) {
 			OpCode pc_1 = GET_OPCODE(code[pc-1]);
 			/***
 			if( dest == F->loop_ptr->start && !isTestOpCode(pc_1)){
-				//continues
-				IntListItem *intItem = NewIntListItem(pc);
-				AddToList(&(F->continues), cast(ListItem*,intItem));
+			//continues
+			IntListItem *intItem = NewIntListItem(pc);
+			AddToList(&(F->continues), cast(ListItem*,intItem));
 			}else
 			***/
-			if( dest == F->loop_ptr->next_code ){
-				if (!isTestOpCode(pc_1)){
+			if (dest == F->loop_ptr->next_code) {
+				if (!isTestOpCode(pc_1)) {
 					//breaks
-					IntListItem *intItem = NewIntListItem(pc);
-					AddToList(&(F->breaks), cast(ListItem*,intItem));
+					IntListItem* intItem = NewIntListItem(pc);
+					AddToList(&(F->breaks), cast(ListItem*, intItem));
 				}
-			}else if( F->loop_ptr->start <= dest && dest < pc ){
-				if(pc_1 == OP_TFORLOOP){
+			} else if (F->loop_ptr->start <= dest && dest < pc) {
+				if (pc_1 == OP_TFORLOOP) {
 					// TFORLOOP jump back
 					LoopItem* item = NewLoopItem(TFORLOOP, dest-1, dest, dest, pc, real_end);
 					AddToLoopTree(F, item);
-				}else if ( isTestOpCode(pc_1) ){
+				} else if (isTestOpCode(pc_1)) {
 					// REPEAT jump back
 					/***
 					* if the out loop(loop_ptr) is while and body=loop_ptr.start,
 					* jump back may be 'until' or 'if', they are the same,
 					* but 'if' is more clear, so we skip making a loop to choose 'if'.
 					* see the lua code:
-						local a,b,c,f
+					local a,b,c,f
 
-						while 1 do
-							repeat
-								f(b)
-							until c
-							f(a)
-						end
+					while 1 do
+					repeat
+					f(b)
+					until c
+					f(a)
+					end
 
-						while 1 do
-							f(b)
-							if c then
-								f(a)
-							end
-						end
+					while 1 do
+					f(b)
+					if c then
+					f(a)
+					end
+					end
 					***/
-					if ( !((F->loop_ptr->type == WHILE ) && (dest == F->loop_ptr->start))){
+					if (!((F->loop_ptr->type == WHILE ) && (dest == F->loop_ptr->start))) {
 						LoopItem* item = NewLoopItem(REPEAT, dest, dest, dest, pc, real_end);
 						AddToLoopTree(F, item);
 					}
-				}else{
+				} else {
 					// WHILE jump back
 					LoopItem* item = NewLoopItem(WHILE, dest, dest, -1, pc, real_end);
 					AddToLoopTree(F, item);
@@ -1953,19 +1935,19 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 
 		F->pc = pc;
 
-		if(pc > F->loop_ptr->end){
+		if (pc > F->loop_ptr->end) {
 			next_child = F->loop_ptr->next;
 			F->loop_ptr = F->loop_ptr->parent;
 		}
 
-		while (next_child && pc >= next_child->body){
+		while (next_child && pc >= next_child->body) {
 			F->loop_ptr = next_child;
 			next_child = F->loop_ptr->child;
 		}
 
 		// nil optimization of Lua 5.1
 		if (pc == 0) {
-			if ((o == OP_SETGLOBAL) || (o == OP_SETUPVAL)){
+			if ((o == OP_SETGLOBAL) || (o == OP_SETUPVAL)) {
 				int ixx;
 				for (ixx = F->freeLocal; ixx <= a; ixx++) {
 					TRY(AssignReg(F, ixx, "nil", 0, 1));
@@ -1992,15 +1974,15 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 			fprintf(stddebug, "\t%d\t", pc + 1);
 			fprintf(stddebug, "%-9s\t", luaP_opnames[o]);
 			switch (getOpMode(o)) {
-		 case iABC:
-			 fprintf(stddebug, "%d %d %d", a, b, c);
-			 break;
-		 case iABx:
-			 fprintf(stddebug, "%d %d", a, bc);
-			 break;
-		 case iAsBx:
-			 fprintf(stddebug, "%d %d", a, sbc);
-			 break;
+			case iABC:
+				fprintf(stddebug, "%d %d %d", a, b, c);
+				break;
+			case iABx:
+				fprintf(stddebug, "%d %d", a, bc);
+				break;
+			case iAsBx:
+				fprintf(stddebug, "%d %d", a, sbc);
+				break;
 			}
 			fprintf(stddebug, "\n");
 		}
@@ -2009,43 +1991,40 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 		TRY(ReleaseLocals(F));
 
 		while (RemoveFromSet(F->do_opens, pc)) {
-			LoopStatement* blockstmt = MakeBlockStatement();
+			AstStatement* blockstmt = MakeBlockStatement();
 			AddAstStatement(F, cast(AstStatement*, blockstmt));
-			F->blockPtr = blockstmt->body;
+			F->currStmt = blockstmt;
 		}
 
 		while (RemoveFromSet(F->do_closes, pc)) {
-			AstBlock* block = F->blockPtr;
-			if ( block->type == BLOCK_BODY) {
-				F->blockPtr = block->parent->parent;
+			AstStatement* block = F->currStmt;
+			if ( block->type == BLOCK_STMT) {
+				F->currStmt = block->parent;
 			} else {
-				SET_ERROR(F, "shuold be a block end, but not in a block");
-				goto errorHandler;
+				SET_ERROR(F, "unexpected 'end' of 'do'");
 			}
 		}
 
 		while (GetEndifAddr(F, pc + 1)) {
-			AstBlock* block = F->blockPtr;
+			AstStatement* block = F->currStmt;
 			F->elseWritten = 0;
 			F->elsePending = 0;
-			if ( block->type == IF_THEN_BLOCK) {
-				F->blockPtr = block->parent->parent;
+			if (block->type == IF_THEN_STMT) {
+				F->currStmt = block->parent->parent;
 			} else {
-				SET_ERROR(F, "shuold be a if then end, but not in a if then block");
-				goto errorHandler;
+				SET_ERROR(F, "unexpected 'end' of 'if'");
 			}
-
 		}
 
 		if ((F->loop_ptr->start == pc) && (F->loop_ptr->type == REPEAT || F->loop_ptr->type == WHILE)) {
-			LoopItem * walk = F->loop_ptr;
+			LoopItem* walk = F->loop_ptr;
 
 			while (walk->parent && (walk->parent->start == pc ) &&(walk->parent->type == REPEAT || walk->parent->type == WHILE)) {
 				walk = walk->parent;
 			}
 
-			while ( !(walk == F->loop_ptr)) {
-				LoopStatement* loopstmt = NULL;
+			while (!(walk == F->loop_ptr)) {
+				AstStatement* loopstmt = NULL;
 				if (walk->type == WHILE) {
 					walk->body = walk->start;
 					loopstmt = MakeLoopStatement(WHILE_STMT, strdup("1"));
@@ -2053,36 +2032,36 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 					loopstmt = MakeLoopStatement(REPEAT_STMT, NULL);
 				}
 				RawAddAstStatement(F, cast(AstStatement*, loopstmt));
-				F->blockPtr = loopstmt->body;
+				F->currStmt = loopstmt;
 				walk = walk->child;
 			}
 
 			if (walk->type == REPEAT) {
-				LoopStatement* loopstmt = MakeLoopStatement(REPEAT_STMT, NULL);
+				AstStatement* loopstmt = MakeLoopStatement(REPEAT_STMT, NULL);
 				RawAddAstStatement(F, cast(AstStatement*, loopstmt));
-				F->blockPtr = loopstmt->body;
+				F->currStmt = loopstmt;
 			} else if (walk->type == WHILE) { 
 				/***
 				* try to process all while as " while 1 do if "
 				* see the lua code:
 				local f, a, b, c
-				
+
 				while test do
-					whilebody
+				whilebody
 				end
 
 
 				while 1 do
-					if test then
-						whilebody
-					else
-						break
-					end
+				if test then
+				whilebody
+				else
+				break
+				end
 				end
 				***/
-				LoopStatement* loopstmt = MakeLoopStatement(WHILE_STMT, strdup("1"));
+				AstStatement* loopstmt = MakeLoopStatement(WHILE_STMT, strdup("1"));
 				RawAddAstStatement(F, cast(AstStatement*, loopstmt));
-				F->blockPtr = loopstmt->body;
+				F->currStmt = loopstmt;
 				walk->body = walk->start;
 			}
 		}
@@ -2344,7 +2323,7 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 				  free(foundInt);
 				  StringBuffer_printf(str, "do break end");
 				  TRY(AddStatement(F, str));
-			  }else if (F->loop_ptr && F->loop_ptr->end == pc ){ // until jmp has been processed, tforloop has ignored the jmp, forloop does not have a jmp
+			  }else if (F->loop_ptr->end == pc){ // until jmp has been processed, tforloop has ignored the jmp, forloop does not have a jmp
 				  if (GetEndifAddr(F, pc + 2)) {
 					  /*** before we have had
 					  while 1 do
@@ -2373,35 +2352,63 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 					  ***/
 
 					  // method 2 ChangeIfToWhile(F)
-					  AstBlock* thisBlock = F->blockPtr;
-					  if (thisBlock->type == IF_THEN_BLOCK) {
-						  IfStatement* ifstmt = cast(IfStatement*, thisBlock->parent);
-						  AstBlock* parentBlock = ifstmt->super.parent;
-						  if (parentBlock->type == WHILE_BODY && parentBlock->statements->size == 1) {
+					  AstStatement* currStmt = F->currStmt;
+					  if (currStmt->type == IF_THEN_STMT) {
+						  AstStatement* ifStmt = currStmt->parent;
+						  AstStatement* parentStmt = ifStmt->parent;
+						  if (parentStmt->type == WHILE_STMT && parentStmt->sub->size == 1) {
 							  // if is the first statment of while body
-							  LoopStatement* whilestmt = cast(LoopStatement*, parentBlock->parent);
-							  char* whiletest = whilestmt->super.code;
-							  if (strcmp(whiletest, "1") == 0) {
-								  char* iftest = ifstmt->super.code;
-								  whilestmt->super.code = iftest;
-								  whilestmt->body = thisBlock;
-								  thisBlock->type = WHILE_BODY;
-								  thisBlock->parent = cast(AstStatement*, whilestmt);
+							  AstStatement* whileStmt = parentStmt;
+							  char* whileTest = whileStmt->code;
+							  if (strcmp(whileTest, "1") == 0) {
+								  // ifthen to while
+								  RemoveFromList(ifStmt->sub, (ListItem*)currStmt);
+								  currStmt->type = WHILE_STMT;
+								  currStmt->code = ifStmt->code;
+								  currStmt->line = ifStmt->line;
+								  currStmt->parent = whileStmt->parent;
 
-								  parentBlock->type = BLOCK_BODY;
-								  parentBlock->parent = NULL;
-								  ifstmt->super.code = whiletest;
-								  ifstmt->thenBlock = MakeAstBlock(IF_THEN_BLOCK);
-								  DeleteAstBlock(parentBlock);
+								  RemoveFromList(whileStmt->parent->sub, (ListItem*)whileStmt);
+
+								  /**
+								  currStmt->parent = whileStmt->parent;
+								  currStmt->super.prev = whileStmt->super.prev;
+								  if (currStmt->super.prev) {
+									  currStmt->super.prev->next = (ListItem*)currStmt;
+								  } else {
+									  currStmt->parent->sub->head = (ListItem*)currStmt;
+								  }
+								  currStmt->super.next = whileStmt->super.next;
+								  if (currStmt->super.next) {
+									  currStmt->super.next->prev = (ListItem*)currStmt;
+								  } else {
+									  currStmt->parent->sub->tail = (ListItem*)currStmt;
+								  }
+								  **/
+
+								  AddToStatement(currStmt->parent, currStmt);
+
+								  ifStmt->code = NULL;
+
+								  DeleteAstStatement(whileStmt);
 							  }
 						  }
 					  }
 				  }
-				  F->blockPtr = F->blockPtr->parent->parent;
+				  if (F->currStmt->type == WHILE_STMT) {
+					  F->currStmt = F->currStmt->parent;
+				  } else {
+					  SET_ERROR(F, "unexpected 'end' of 'while'");
+				  }
 			  }else if (GetEndifAddr(F, pc + 2)) { // jmp before 'else'
 				  if (F->elseWritten) {
-					  F->blockPtr = F->blockPtr->parent->parent;
+					  if (F->currStmt->type == IF_THEN_STMT || F->currStmt->type == IF_ELSE_STMT) {
+						  F->currStmt = F->currStmt->parent->parent;
+					  } else {
+						  SET_ERROR(F, "unexpected 'end' of 'if'");
+					  }
 				  }
+				  //TODO check should we output 'else' here ?
 				  F->indent--;
 				  F->elsePending = dest;
 				  F->elseStart = pc + 2;
@@ -2414,7 +2421,7 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 				  const char *generator, *control, *state;
 				  //char *variables[20];
 				  char* vname[40];
-				  LoopStatement* forstmt = NULL;
+				  AstStatement* forstmt = NULL;
 				  //int stepLen;
 
 				  a = GETARG_A(idest);
@@ -2473,8 +2480,8 @@ char* ProcessCode(const Proto * f, int indent, int func_checking)
 				  F->intbegin[F->intspos] = a;
 				  F->intend[F->intspos] = a+2+c;
 				  forstmt = MakeLoopStatement(TFORLOOP_STMT, StringBuffer_getBuffer(str));
-				  AddAstStatement(F, cast(AstStatement*, forstmt));
-				  F->blockPtr = forstmt->body;
+				  AddAstStatement(F, forstmt);
+				  F->currStmt = forstmt;
 				  break;
 			  } else if (sbc == 2 && GET_OPCODE(code[pc+2]) == OP_LOADBOOL) {
 				  int boola = GETARG_A(code[pc+1]);
@@ -2603,14 +2610,12 @@ LOGIC_NEXT_JMP:
 				  LogicExp* exp = NULL;
 				  TRY(exp = MakeBoolean(F, &endif, &thenaddr));
 				  TRY(test = WriteBoolean(exp, &thenaddr, &endif, 0));
-				  if (F->blockPtr->type == REPEAT_BODY) {
-					  LoopStatement* repeatstmt = cast(LoopStatement*, F->blockPtr->parent);
-					  repeatstmt->super.code = test;
+				  if (F->currStmt->type == REPEAT_STMT) {
+					  F->currStmt->code = test;
 					  test = NULL;
-					  F->blockPtr = repeatstmt->super.parent;
+					  F->currStmt = F->currStmt->parent;
 				  } else {
-					  SET_ERROR(F, "shuold be a until here, but not in repeat body");
-					  goto errorHandler;
+					  SET_ERROR(F, "unexpected 'until' of 'repeat'");
 				  }
 				  if (test) free(test);
 				  if (exp) DeleteLogicExpTree(exp);
@@ -2716,7 +2721,7 @@ LOGIC_NEXT_JMP:
 	  case OP_FORLOOP: //Lua5.1 specific. TODO: CHECK
 		  {
 			  int i;
-			  AstBlock* block = F->blockPtr;
+			  AstStatement* currStmt = F->currStmt;
 
 			  for (i=F->intbegin[F->intspos]; i<=F->intend[F->intspos]; i++)
 			  {
@@ -2727,18 +2732,17 @@ LOGIC_NEXT_JMP:
 			  F->intspos--;
 			  F->ignore_for_variables = 0;
 
-			  if (block->type == FORLOOP_BODY) {
-				  F->blockPtr = block->parent->parent;
+			  if (currStmt->type == FORLOOP_STMT) {
+				  F->currStmt = currStmt->parent;
 			  } else {
-				  SET_ERROR(F, "should be a for end, but not in for body");
-				  goto errorHandler;
+				  SET_ERROR(F, "unexpected 'end' of 'for' loop");
 			  }
 			  break;
 		  }
 	  case OP_TFORLOOP: //Lua5.1 specific. TODO: CHECK
 		  {
 			  int i;
-			  AstBlock* block = F->blockPtr;
+			  AstStatement* currStmt = F->currStmt;
 			  for (i=F->intbegin[F->intspos]; i<=F->intend[F->intspos]; i++)
 			  {
 				  IS_VARIABLE(i)=0;
@@ -2747,11 +2751,10 @@ LOGIC_NEXT_JMP:
 			  F->intspos--;
 
 			  F->ignore_for_variables = 0;
-			  if (block->type == TFORLOOP_BODY) {
-				  F->blockPtr = block->parent->parent;
+			  if (currStmt->type == TFORLOOP_STMT) {
+				  F->currStmt = currStmt->parent;
 			  } else {
-				  SET_ERROR(F, "should be a tfor end, but not in tfor body");
-				  goto errorHandler;
+				  SET_ERROR(F, "unexpected 'end' of generic 'for' loop");
 			  }
 			  ignoreNext = 1;
 			  break;
@@ -2766,7 +2769,7 @@ LOGIC_NEXT_JMP:
 			  char *idxname;
 			  const char *initial, *a1str, *endstr;
 			  int stepLen;
-			  LoopStatement* forstmt = NULL;
+			  AstStatement* forstmt = NULL;
 			  F->intspos++;
 			  TRY(initial = GetR(F, a));
 			  TRY(endstr = GetR(F, a+2));
@@ -2831,8 +2834,8 @@ LOGIC_NEXT_JMP:
 			  F->intbegin[F->intspos] = a;
 			  F->intend[F->intspos] = a+3;
 			  forstmt = MakeLoopStatement(FORLOOP_STMT, StringBuffer_getBuffer(str));
-			  AddAstStatement(F, cast(AstStatement*, forstmt));
-			  F->blockPtr = forstmt->body;
+			  AddAstStatement(F, forstmt);
+			  F->currStmt = forstmt;
 			  break;
 		  }
 	  case OP_SETLIST:
@@ -2931,13 +2934,12 @@ LOGIC_NEXT_JMP:
 		}
 
 		if (GetEndifAddr(F, pc)) {
-			AstBlock* block = F->blockPtr;
+			AstStatement* currStmt = F->currStmt;
 			F->elseWritten = 0;
-			if (block->type == IF_THEN_BLOCK || block->type == IF_ELSE_BLOCK) {
-				F->blockPtr = block->parent->parent;
+			if (currStmt->type == IF_THEN_STMT || currStmt->type == IF_ELSE_STMT) {
+				F->currStmt = currStmt->parent->parent;
 			} else {
-				SET_ERROR(F, "should be a if end, but not in if then body");
-				goto errorHandler;
+				SET_ERROR(F, "unexpected 'end' of 'if'");
 			}
 		}
 
@@ -2946,23 +2948,23 @@ LOGIC_NEXT_JMP:
 	}
 
 	if (GetEndifAddr(F, pc+1)) {
-		AstBlock* block = F->blockPtr;
-		if (block->type == IF_THEN_BLOCK || block->type == IF_ELSE_BLOCK) {
-			F->blockPtr = block->parent->parent;
+		AstStatement* currStmt = F->currStmt;
+		F->elseWritten = 0;
+		if (currStmt->type == IF_THEN_STMT || currStmt->type == IF_ELSE_STMT) {
+			F->currStmt = currStmt->parent->parent;
 		} else {
-			SET_ERROR(F, "should be a if end, but not in if then body");
-			goto errorHandler;
+			SET_ERROR(F, "unexpected 'end' of 'if'");
 		}
 	}
 
 	TRY(FlushBoolean(F));
 
 	if (SET_CTR(F->tpend)>0) {
-		StringBuffer_set(str," -- WARNING: undefined locals caused missing assignments!");
-		TRY(AddStatement(F,str));
+		StringBuffer_set(str, " -- WARNING: undefined locals caused missing assignments!");
+		TRY(AddStatement(F, str));
 	}
 
-	if( !IsMain(f) && func_checking){
+	if (!IsMain(f) && func_checking) {
 		StringBuffer_set(str, "end");
 		TRY(AddStatement(F, str));
 	}
@@ -2979,7 +2981,7 @@ errorHandler:
 		StringBuffer_printf(str, "--[[ DECOMPILER ERROR %d: %s ]]", errorCode, error);
 		stmt = MakeSimpleStatement(StringBuffer_getBuffer(str));
 		stmt->line = F->pc;
-		AddToBlock(F->blockPtr, stmt);
+		AddToStatement(F->currStmt, stmt);
 		F->lastLine = F->pc;
 	}
 	output = PrintFunction(F);
@@ -2989,8 +2991,7 @@ errorHandler:
 	return output;
 }
 
-void luaU_decompile(Proto * f, int dflag)
-{
+void luaU_decompile(Proto* f, int dflag) {
 	char* code;
 	debug = dflag;
 	functionnum = 0;
@@ -3003,9 +3004,8 @@ void luaU_decompile(Proto * f, int dflag)
 	fflush(stderr);
 }
 
-void luaU_decompileNestedFunctions(Proto* f, int dflag, char* funcnumstr)
-{
-	int i,c=f->sizep;
+void luaU_decompileNestedFunctions(Proto* f, int dflag, char* funcnumstr) {
+	int i, c = f->sizep;
 	char* code;
 
 	int uvn;
@@ -3018,26 +3018,26 @@ void luaU_decompileNestedFunctions(Proto* f, int dflag, char* funcnumstr)
 	functionnum = 0;
 
 	c = atoi(startstr);
-	if ( c < 0 || c > cf->sizep ){
-		fprintf(stderr,"No such nested function num : %s , use -pn option to get available num.\n", funcnumstr);
+	if (c < 0 || c > cf->sizep) {
+		fprintf(stderr, "No such nested function num : %s , use -pn option to get available num.\n", funcnumstr);
 		return;
 	}
-	if ( c > 0 && c <= cf->sizep ){
+	if (c > 0 && c <= cf->sizep) {
 		cf = cf->p[c-1];
 		functionnum = c;
 	}
-	endstr = strchr(startstr,'_');
-	startstr=endstr+1;
+	endstr = strchr(startstr, '_');
+	startstr = endstr+1;
 
-	while( !(endstr == NULL) ){
+	while (!(endstr == NULL)) {
 		c = atoi(startstr);
-		if ( c < 1 || c > cf->sizep  ){
-			fprintf(stderr,"No such nested function num : %s , use -pn option to get available num.\n",funcnumstr);
+		if (c < 1 || c > cf->sizep) {
+			fprintf(stderr, "No such nested function num : %s , use -pn option to get available num.\n", funcnumstr);
 			return;
 		}
 		cf = cf->p[c-1];
-		endstr = strchr(startstr,'_');
-		startstr=endstr+1;
+		endstr = strchr(startstr, '_');
+		startstr = endstr+1;
 	}
 
 	uvn = cf->nups;
@@ -3048,20 +3048,18 @@ void luaU_decompileNestedFunctions(Proto* f, int dflag, char* funcnumstr)
 
 	if (!cf->upvalues) {
 		cf->sizeupvalues = uvn;
-		cf->upvalues = luaM_newvector(glstate,uvn,TString*);
+		cf->upvalues = luaM_newvector(glstate ,uvn, TString*);
 
 		for (i=0; i<uvn; i++) {
 			char names[10];
-			sprintf(names,"l_%d_%d",0,i);
+			sprintf(names ,"l_%d_%d", 0, i);
 			cf->upvalues[i] = luaS_new(glstate, names);
-			printf("local l_%d_%d = nil\n",0,i);
+			printf("local l_%d_%d = nil\n", 0, i);
 		}
 	}
 
 	debug = dflag;
-
-
-	printf("DecompiledFunction_%s = function",funcnumstr);
+	printf("DecompiledFunction_%s = function", funcnumstr);
 	errorStr = StringBuffer_new(NULL);
 	code = ProcessCode(cf, 0, 0);
 	StringBuffer_delete(errorStr);
@@ -3071,20 +3069,19 @@ void luaU_decompileNestedFunctions(Proto* f, int dflag, char* funcnumstr)
 	fflush(stderr);
 }
 
-void luaU_decompileFunctions(Proto* f, int dflag, int functions)
-{
-	int i,c=f->sizep;
+void luaU_decompileFunctions(Proto* f, int dflag, int functions) {
+	int i, c = f->sizep;
 	char* code;
 
 	int uvn;
 	//int cfnum = functionnum;
 
-	if ( functions > f->sizep ){
-		fprintf(stderr,"No such function num, function num is from %d to %d.\n",0,f->sizep);
+	if (functions > f->sizep) {
+		fprintf(stderr,"No such function num, function num is from %d to %d.\n", 0, f->sizep);
 		return;
 	}
 
-	c = functions-1;
+	c = functions - 1;
 	uvn = f->p[c]->nups;
 
 	/* determining upvalues */
@@ -3093,22 +3090,19 @@ void luaU_decompileFunctions(Proto* f, int dflag, int functions)
 
 	if (!f->p[c]->upvalues) {
 		f->p[c]->sizeupvalues = uvn;
-		f->p[c]->upvalues = luaM_newvector(glstate,uvn,TString*);
-
+		f->p[c]->upvalues = luaM_newvector(glstate, uvn, TString*);
 		for (i=0; i<uvn; i++) {
 			char names[10];
-			sprintf(names,"l_%d_%d",0,i);
+			sprintf(names, "l_%d_%d", 0, i);
 			f->p[c]->upvalues[i] = luaS_new(glstate, names);
-			printf("local l_%d_%d = nil\n",0,i);
+			printf("local l_%d_%d = nil\n", 0, i);
 		}
 	}
 
-	i = functions-1;
+	i = functions - 1;
 	debug = dflag;
-
-
-	printf("DecompiledFunction_%d = function",functions);
-	functionnum = i+1;
+	printf("DecompiledFunction_%d = function", functions);
+	functionnum = i + 1;
 	errorStr = StringBuffer_new(NULL);
 	code = ProcessCode(f->p[i], 0, 0);
 	StringBuffer_delete(errorStr);

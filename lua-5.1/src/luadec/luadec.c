@@ -18,15 +18,15 @@
 #include "disassemble.h"
 
 #ifndef SRCVERSION
-#include "srcversion.h"
+	#include "srcversion.h"
 #endif
 
 #ifndef LUA_DEBUG
-#define luaB_opentests(L)
+	#define luaB_opentests(L)
 #endif
 
 #ifndef PROGNAME
-#define PROGNAME	"LuaDec"	/* program name */
+	#define PROGNAME	"LuaDec"	/* program name */
 #endif
 
 #define	OUTPUT		"luadec.out"	/* default output file */

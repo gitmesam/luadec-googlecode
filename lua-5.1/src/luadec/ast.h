@@ -15,65 +15,35 @@ enum StatementType_ {
 	REPEAT_STMT,
 	FORLOOP_STMT,
 	TFORLOOP_STMT,
-	IF_STMT
+	IF_STMT,
+	IF_THEN_STMT,
+	IF_ELSE_STMT
 };
 
-typedef enum BlockType_ BlockType;
-enum BlockType_ {
-	BLOCK_BODY,
-	FUNCTION_BODY,
-	WHILE_BODY,
-	REPEAT_BODY,
-	FORLOOP_BODY,
-	TFORLOOP_BODY,
-	IF_THEN_BLOCK,
-	IF_ELSE_BLOCK
-};
+extern const char* stmttype[];
 
-typedef struct AstBlock_ AstBlock;
 typedef struct AstStatement_ AstStatement;
-
-struct AstBlock_ {
-	BlockType type;
-	AstStatement* parent;
-	List* statements;
-};
-
 struct AstStatement_ {
 	ListItem super;
-	AstBlock* parent;
+	AstStatement* parent;
 	StatementType type;
-	int line;
 	char* code;
+	List* sub;
+	int line;
 };
-
-typedef struct LoopStatement_ LoopStatement;
-struct LoopStatement_ {
-	AstStatement super;
-	AstBlock* body;
-};
-
-typedef struct IfStatement_ IfStatement;
-struct IfStatement_ {
-	AstStatement super;
-	AstBlock* thenBlock;
-	AstBlock* elseBlock;
-};
-
-AstBlock* MakeAstBlock(BlockType type);
-void DeleteAstBlock(AstBlock* block);
-void PrintAstBlock(AstBlock* block, StringBuffer* buff, int indent);
 
 AstStatement* MakeSimpleStatement(char* code);
-LoopStatement* MakeBlockStatement();
-LoopStatement* MakeLoopStatement(StatementType type, char* test);
-IfStatement* MakeIfStatement(char* test);
+AstStatement* MakeBlockStatement();
+AstStatement* MakeLoopStatement(StatementType type, char* test);
+AstStatement* MakeIfStatement(char* test);
 
 void ClearAstStatement(AstStatement* stmt, void* dummy);
 void DeleteAstStatement(AstStatement* stmt);
 
 void PrintAstStatement(AstStatement* stmt, StringBuffer* buff, int indent);
 
-void AddToBlock(AstBlock* block, AstStatement* stmt);
+void PrintAstSub(List* sub, StringBuffer* buff, int indent);
+
+void AddToStatement(AstStatement* stmt, AstStatement* sub);
 
 #endif

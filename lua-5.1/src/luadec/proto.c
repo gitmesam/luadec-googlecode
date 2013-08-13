@@ -11,29 +11,28 @@
 
 #include "proto.h"
 
-const char *operators[22] = {
-		" ", " ", " ", " ", " ",
-		" ", " ", " ", " ", " ",
-		" ", " ","+", "-", "*",
-		"/", "%", "^", "-", "not ",
-		"#", ".."
+const char* operators[22] = {
+	" ", " ", " ", " ", " ",
+	" ", " ", " ", " ", " ",
+	" ", " ","+", "-", "*",
+	"/", "%", "^", "-", "not ",
+	"#", ".."
 }; // Lua5.1 specific
 
 const int priorities[22] = {
-		0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0,
-		0, 0, 4, 4, 3,
-		3, 3, 1, 2, 2,
-		2, 5
+	0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0,
+	0, 0, 4, 4, 3,
+	3, 3, 1, 2, 2,
+	2, 5
 }; // Lua5.1 specific
 
 // PrintString from luac is not 8-bit clean
-char *DecompileString(const Proto * f, int n)
-{
+char *DecompileString(const Proto* f, int n) {
 	int i;
-	const unsigned char *s = (const unsigned char *)svalue(&f->k[n]);
+	const unsigned char* s = (const unsigned char*)svalue(&f->k[n]);
 	int len = (&(&f->k[n])->value.gc->ts)->tsv.len;
-	char *ret = (char*)calloc(len * 4 + 3, sizeof(char));
+	char* ret = (char*)calloc(len * 4 + 3, sizeof(char));
 	int p = 0;
 	ret[p++] = '"';
 	for (i = 0; i < len; i++, s++) {
@@ -75,7 +74,7 @@ char *DecompileString(const Proto * f, int n)
 			ret[p++] = '\\';
 			break;
 		default:
-			if ((*s < 32 || *s > 127) && !( *s >= 0x40 && *s <= 0xFE ) ){
+			if ((*s < 32 || *s > 127) && !( *s >= 0x40 && *s <= 0xFE )) {
 				char* pos = &(ret[p]);
 				sprintf(pos, "\\%d", *s);
 				p += strlen(pos);
@@ -90,40 +89,38 @@ char *DecompileString(const Proto * f, int n)
 	return ret;
 }
 
-char *DecompileConstant(const Proto * f, int i)
-{
-	//  char* ret = (char*)calloc(4, sizeof(char));
-	//  sprintf(ret,"nil");
-	//  return ret;
-	const TValue *o = &f->k[i];
+char* DecompileConstant(const Proto* f, int i) {
+	const TValue* o = &f->k[i];
 	switch (ttype(o)) {
-		case LUA_TBOOLEAN: // Lua5.1 specific
-			{
-				if (o->value.b) {
-					char *ret = strdup("true");
-					return ret;
-				} else {
-					char *ret = strdup("false");
-					return ret;
-				}
-			}
-		case LUA_TNUMBER:
-			{
-				char *ret = (char*)calloc(100, sizeof(char));
-				sprintf(ret, LUA_NUMBER_FMT, nvalue(o));
+	case LUA_TBOOLEAN:
+		{
+			if (o->value.b) {
+				char* ret = strdup("true");
+				return ret;
+			} else {
+				char* ret = strdup("false");
 				return ret;
 			}
-		case LUA_TSTRING:
+		}
+	case LUA_TNUMBER:
+		{
+			char* ret = (char*)calloc(100, sizeof(char));
+			sprintf(ret, LUA_NUMBER_FMT, nvalue(o));
+			return ret;
+		}
+	case LUA_TSTRING:
+		{
 			return DecompileString(f, i);
-		case LUA_TNIL:
-			{
-				char *ret = strdup("nil");
-				return ret;
-			}
-		default:                   /* cannot happen */
-			{
-				char *ret = strdup("Unknown_Type_Error");
-				return ret;
-			}
+		}
+	case LUA_TNIL:
+		{
+			char* ret = strdup("nil");
+			return ret;
+		}
+	default:
+		{
+			char* ret = strdup("Unknown_Type_Error");
+			return ret;
+		}
 	}
 }
