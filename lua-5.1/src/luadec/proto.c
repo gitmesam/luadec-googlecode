@@ -27,9 +27,46 @@ const int priorities[22] = {
 	2, 5
 }; // Lua5.1 specific
 
+int isUTF8(const unsigned char* buff, int size) {
+	int utf8length;
+	const unsigned char* currchr = buff;
+	if (*currchr < 0x80) { // (10000000): 1 byte ASCII
+		utf8length = 1;
+	} else if (*currchr < 0xC0) { // (11000000): invalid
+		utf8length = 0;
+		return utf8length;
+	} else if (*currchr < 0xE0) { // (11100000): 2 byte
+		utf8length = 2;
+	} else if (*currchr < 0xF0) { // (11110000): 3 byte
+		utf8length = 3;
+	} else if (*currchr < 0xF8) { // (11111000): 4 byte
+		utf8length = 4;
+	} else if (*currchr < 0xFC) { // (11111100): 5 byte
+		utf8length = 5;
+	} else if (*currchr < 0xFE) { // (11111110): 6 byte
+		utf8length = 6;
+	} else { // invalid
+		utf8length = 0;
+		return utf8length;
+	}
+	if (utf8length > size) {
+		utf8length = 0;
+		return utf8length;
+	}
+	currchr++;
+	while (currchr < buff + utf8length) {
+		if ((*currchr&0xC0) != 0x80) { // 10xxxxxx
+			utf8length = 0;
+			return utf8length;
+		}
+		currchr++;
+	}
+	return utf8length;
+}
+
 // PrintString from luac is not 8-bit clean
-char *DecompileString(const Proto* f, int n) {
-	int i;
+char* DecompileString(const Proto* f, int n) {
+	int i, utf8length;
 	const unsigned char* s = (const unsigned char*)svalue(&f->k[n]);
 	int len = (&(&f->k[n])->value.gc->ts)->tsv.len;
 	char* ret = (char*)calloc(len * 4 + 3, sizeof(char));
@@ -37,10 +74,6 @@ char *DecompileString(const Proto* f, int n) {
 	ret[p++] = '"';
 	for (i = 0; i < len; i++, s++) {
 		switch (*s) {
-		case '"':
-			ret[p++] = '\\';
-			ret[p++] = '"';
-			break;
 		case '\a':
 			ret[p++] = '\\';
 			ret[p++] = 'a';
@@ -73,13 +106,72 @@ char *DecompileString(const Proto* f, int n) {
 			ret[p++] = '\\';
 			ret[p++] = '\\';
 			break;
+		case '"':
+			ret[p++] = '\\';
+			ret[p++] = '"';
+			break;
+		case '\'':
+			ret[p++] = '\\';
+			ret[p++] = '\'';
+			break;
 		default:
-			if ((*s < 32 || *s > 127) && !( *s >= 0x40 && *s <= 0xFE )) {
+			if (*s >= 32 && *s <= 127) {
+				ret[p++] = *s;
+#ifdef STRING_GB2312
+			} else if ( i+1 < len
+				&& *s >= 0xA1 && *s <= 0xF7
+				&& *(s+1) >= 0xA1 && *(s+1) <= 0xFE
+				) {
+				ret[p++] = *s;
+				i++; s++;
+				ret[p++] = *s;
+#endif
+#if defined(STRING_GBK) || defined(STRING_GB18030)
+			} else if ( i+1 < len
+				&& *s >= 0x81 && *s <= 0xFE
+				&& *(s+1) >= 0x40 && *(s+1) <= 0xFE && *(s+1) != 0x7F
+				) {
+				ret[p++] = *s;
+				i++; s++;
+				ret[p++] = *s;
+#endif
+#ifdef STRING_GB18030
+			} else if ( i+3 < len
+				&& *s >= 0x81 && *s <= 0xFE
+				&& *(s+1) >= 0x30 && *(s+1) <= 0x39
+				&& *(s+2) >= 0x81 && *(s+2) <= 0xFE
+				&& *(s+3) >= 0x30 && *(s+3) <= 0x39
+				) {
+				ret[p++] = *s;
+				i++; s++;
+				ret[p++] = *s;
+				i++; s++;
+				ret[p++] = *s;
+				i++; s++;
+				ret[p++] = *s;
+#endif
+#ifdef STRING_BIG5
+			} else if ( i+1 < len
+				&& *s >= 0x81 && *s <= 0xFE
+				&& ((*(s+1) >= 0x40 && *(s+1) <= 0x7E) || (*(s+1) >= 0xA1 && *(s+1) <= 0xFE))
+				) {
+				ret[p++] = *s;
+				i++; s++;
+				ret[p++] = *s;
+#endif
+#ifdef STRING_UTF8
+			} else if ((utf8length = isUTF8(s, len-i)) > 1) {
+				int j;
+				ret[p++] = *s;	
+				for (j = 0; j < utf8length-1; j++) {
+					i++; s++;
+					ret[p++] = *s;					
+				}
+#endif
+			} else {
 				char* pos = &(ret[p]);
 				sprintf(pos, "\\%03d", *s);
 				p += strlen(pos);
-			} else {
-				ret[p++] = *s;
 			}
 			break;
 		}
