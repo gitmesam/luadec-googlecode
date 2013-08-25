@@ -26,31 +26,31 @@
 #endif
 
 #ifndef PROGNAME
-	#define PROGNAME	"LuaDec"	/* program name */
+	#define PROGNAME "LuaDec"	/* program name */
 #endif
 
-#define	OUTPUT		"luadec.out"	/* default output file */
+#define	OUTPUT "luadec.out"		/* default output file */
 
 #define VERSION "2.2"
 
-static int debugging=0;			/* debug decompiler? */
+int debug=0;					/* debug decompiler? */
 static int functions=0;			/* dump functions separately? */
 static char* funcnumstr=NULL;
 static int printfuncnum=0;      /* print function nums? */
 static int dumping=1;			/* dump bytecodes? */
 static int stripping=0;			/* strip debug information? */
-static int disassemble=0;  /* disassemble? */
-int locals=0;			/* strip debug information? */
+static int disassemble=0;		/* disassemble? */
+int locals=0;					/* strip debug information? */
 int localdeclare[255][255];
 int functionnum;
-int disnested=0;            /* don't decompile nested functions? */
-int func_check=0;            /* compile decompiled function and compare */
+int disnested=0;				/* don't decompile nested functions? */
+int func_check=0;				/* compile decompiled function and compare */
 int guess_locals=1;
 lua_State* glstate;
 static int lds2=0;
 char* LDS2;
-static char Output[]={ OUTPUT };	/* default output file name */
-static const char* output=Output;	/* output file name */
+static char Output[]={ OUTPUT };		/* default output file name */
+static const char* output=Output;		/* output file name */
 static const char* progname=PROGNAME;	/* actual program name */
 
 static void fatal(const char* message) {
@@ -66,10 +66,10 @@ static void usage(const char* message, const char* arg) {
 		fprintf(stderr,"%s: ",progname); fprintf(stderr,message,arg); fprintf(stderr,"\n");
 	}
 	fprintf(stderr,
-		"LuaDec " VERSION " r" SRCVERSION "\n"
+		"LuaDec " VERSION " " MACRO_STR(STRING_LOCALE) " r" SRCVERSION "\n"
 		" Original by Hisham Muhammad (http://luadec.luaforge.net)\n"
 		" Ongoing port to Lua 5.1 by Zsolt Sz. Sztupak (http://winmo.sztupy.hu)\n"
-		" by VirusCamp (http://code.google.com/p/luadec)\n"
+		" by VirusCamp (http://luadec.googlecode.com)\n"
 		"usage: %s [options] [filename].  Available options are:\n"
 		"  -        process stdin\n"
 		"  -d       output information for debugging the decompiler\n"
@@ -239,7 +239,7 @@ static int doargs(int argc, char* argv[]) {
 		else if (IS("-dis"))			/* list */
 			disassemble=1;
 		else if (IS("-d"))			/* list */
-			debugging=1;
+			debug=1;
 		else if (IS("-f")) {		/* list */
 			i++;
 			if (argv[i]==NULL || *argv[i]==0) {
@@ -290,7 +290,7 @@ static int doargs(int argc, char* argv[]) {
 		else if (IS("-s"))			/* strip debug information */
 			stripping=1;
 		else if (IS("-v")) {		/* show version */
-			printf("LuaDec "VERSION"\n");
+			printf("LuaDec " VERSION " " MACRO_STR(STRING_LOCALE) " r" SRCVERSION"\n");
 			if (argc==2) exit(EXIT_SUCCESS);
 		}
 		else if (IS("-fc"))
@@ -298,7 +298,7 @@ static int doargs(int argc, char* argv[]) {
 		else					/* unknown option */
 			usage("unrecognized option `%s'",argv[i]);
 	}
-	if (i==argc && (debugging || !dumping))	{
+	if (i==argc && (debug || !dumping))	{
 		dumping=0;
 		argv[--i]=Output;
 	}
@@ -419,10 +419,10 @@ int main(int argc, char* argv[]) {
 		luaU_guess_locals(f,0);
 	}
 	if (disassemble) {
-		printf("; Disassembled using luadec " VERSION " r" SRCVERSION " from http://code.google.com/p/luadec\n");
+		printf("; Disassembled using luadec " VERSION " " MACRO_STR(STRING_LOCALE) " r" SRCVERSION " from http://luadec.googlecode.com\n");
 		printf("; Command line: ");
 	} else {
-		printf("-- Decompiled using luadec " VERSION " r" SRCVERSION " from http://code.google.com/p/luadec\n");
+		printf("-- Decompiled using luadec " VERSION " " MACRO_STR(STRING_LOCALE) " r" SRCVERSION " from http://luadec.googlecode.com\n");
 		printf("-- Command line: ");
 	}
 	for (i=1; i<oargc; i++) {
@@ -446,23 +446,23 @@ int main(int argc, char* argv[]) {
 		return 0;
 	}
 	if (funcnumstr) {
-		luaU_decompileNestedFunctions(f, debugging, funcnumstr);
+		luaU_decompileNestedFunctions(f, debug, funcnumstr);
 	}
 	else {
 		if (functions) {
 			if (disassemble) {
 				sprintf(tmp,"%d",functions);
-				luaU_disassemble(f,debugging,functions,tmp);
+				luaU_disassemble(f,debug,functions,tmp);
 			} else {
-				luaU_decompileFunctions(f, debugging, functions);
+				luaU_decompileFunctions(f, debug, functions);
 			}
 		}
 		else {
 			if (disassemble) {
 				sprintf(tmp,"%s","");
-				luaU_disassemble(f,debugging,0,tmp);
+				luaU_disassemble(f,debug,0,tmp);
 			} else {
-				luaU_decompile(f, debugging);
+				luaU_decompile(f, debug);
 			}
 		}
 	}

@@ -7,8 +7,6 @@
 #include <ctype.h>
 #include <assert.h>
 
-#define DEBUG_PRINT
-
 #include "lua.h"
 #include "lauxlib.h"
 #include "ldebug.h"
@@ -22,6 +20,8 @@
 #include "proto.h"
 #include "ast.h"
 #include "decompile.h"
+
+#define DEBUG_PRINT
 
 #define stddebug stdout
 
@@ -51,9 +51,7 @@ const char* getupval(Function* F, int r) {
 	}
 }
 
-char* luadec_strdup(const char* src){
-	return src?strdup(src):NULL;
-}
+#define luadec_strdup(src) ((src)?strdup(src):NULL)
 
 #define UPVALUE(r) (getupval(F,r))
 #define REGISTER(r) F->R[r]
@@ -76,7 +74,7 @@ char* luadec_strdup(const char* src){
 #define SET_ERROR(F,e) { StringBuffer_printf(errorStr,"-- DECOMPILER ERROR: %s\n", (e)); RawAddStatement((F),errorStr); }
 /*  error = e; errorCode = __LINE__; */ /*if (debug) { printf("DECOMPILER ERROR: %s\n", e);  }*/
 
-static int debug;
+extern int debug;
 
 static char* error;
 static int errorCode;
@@ -127,7 +125,7 @@ void PrintStatement(Statement* self, Function* F) {
 	StringBuffer_addPrintf(F->decompiledCode, "%s\n", self->code);
 }
 
-LoopItem* NewLoopItem(LoopType type, int prep, int start, int body, int end, int next_code){
+LoopItem* NewLoopItem(LoopType type, int prep, int start, int body, int end, int out){
 	LoopItem* self = (LoopItem*)calloc(1, sizeof(LoopItem));
 
 	self->parent = NULL;
@@ -140,7 +138,7 @@ LoopItem* NewLoopItem(LoopType type, int prep, int start, int body, int end, int
 	self->start = start;
 	self->body = body;
 	self->end = end;
-	self->next_code = next_code;
+	self->out = out;
 
 	return self;
 }
@@ -151,7 +149,7 @@ int MatchLoopItem(LoopItem* item, LoopItem* match){
 		&& ((item->start == match->start)||(match->start == INT_MIN))
 		&& ((item->body == match->body)||(match->body == INT_MIN))
 		&& ((item->end == match->end)||(match->end == INT_MIN))
-		&& ((item->next_code == match->next_code)||(match->next_code == INT_MIN));
+		&& ((item->out == match->out)||(match->out == INT_MIN));
 }
 
 int AddToLoopTree(Function* F, LoopItem* item){
@@ -725,7 +723,7 @@ void FlushBoolean(Function* F) {
 		//TODO find another method to determine while loop body to output while do
 		//search parent
 		walk = F->loop_ptr;
-		if (walk->type == WHILE && walk->next_code == endif -1 && walk->body == -1){
+		if (walk->type == WHILE && walk->out == endif -1 && walk->body == -1){
 			int whileStart = walk->start;
 			walk->body = thenaddr;
 			flushWhile = 1;
@@ -798,6 +796,7 @@ void FlushElse(Function* F) {
 				AstStatement* lastif = F->currStmt->parent;
 				F->currStmt = cast(AstStatement*, lastif->sub->tail);
 				newif = MakeIfStatement(test);
+				test = NULL;
 				RawAddAstStatement(F, newif);
 				F->currStmt = cast(AstStatement*, newif->sub->head);
 				F->elseWritten = 0;
@@ -1160,6 +1159,8 @@ Function* NewFunction(const Proto* f) {
 
 	InitList(&(self->breaks));
 	InitList(&(self->continues));
+	InitList(&(self->jmpdests));
+
 	self->do_opens = (IntSet*)calloc(1, sizeof(IntSet));
 	self->do_closes = (IntSet*)calloc(1, sizeof(IntSet));
 	self->decompiledCode = StringBuffer_new(NULL);
@@ -1187,6 +1188,7 @@ void DeleteFunction(Function* self) {
 	free(self->tpend);
 	ClearList(&(self->breaks), NULL);
 	ClearList(&(self->continues), NULL);
+	ClearList(&(self->jmpdests), (ListItemFn)ClearAstStatement);
 	DeleteLoopTree(self->loop_tree);
 	free(self->do_opens);
 	free(self->do_closes);
@@ -1478,13 +1480,13 @@ int luadec_isalnum(int ch) {
 	return ( ch>='0' && ch<='9' ) || ( ch>='a' && ch<='z' ) || ( ch>='A' && ch<='Z' );
 }
 
-const int numofkeywords = 21;
+const int numofkeywords = 23;
 const char* keywords[] = {
 	"and", "break", "do", "else", "elseif",
 	"end", "false", "for", "function", "if",
 	"in", "local", "nil", "not", "or",
 	"repeat", "return", "then", "true", "until",
-	"while", "continue"
+	"while", "continue", "goto"
 };
 
 /* type: DOT=0,SELF=1,TABLE=2
@@ -1866,14 +1868,24 @@ char* ProcessCode(const Proto* f, int indent, int func_checking) {
 			AddToLoopTree(F, item);
 		} else if (o == OP_JMP) {
 			OpCode pc_1 = GET_OPCODE(code[pc-1]);
-			/***
-			if( dest == F->loop_ptr->start && !isTestOpCode(pc_1)){
-			//continues
-			IntListItem *intItem = NewIntListItem(pc);
-			AddToList(&(F->continues), cast(ListItem*,intItem));
-			}else
-			***/
-			if (dest == F->loop_ptr->next_code) {
+
+			AstStatement* jmp = NULL;
+			AstStatement* jmpdest = cast(AstStatement*, F->jmpdests.tail);
+			while (jmpdest && jmpdest->line > dest) {
+				jmpdest = cast(AstStatement*, jmpdest->super.prev);
+			}
+			if (jmpdest == NULL || jmpdest->line < dest) {
+				AstStatement* newjmpdest = MakeLoopStatement(JMP_DEST_STMT, NULL);
+				newjmpdest->line = dest;
+				AddAllAfterListItem(&(F->jmpdests), (ListItem*)jmpdest, (ListItem*)newjmpdest);
+				jmpdest = newjmpdest;
+			}
+			jmp = MakeSimpleStatement(NULL);
+			jmp->line = pc;
+			jmp->parent = jmpdest;
+			AddToListHead(jmpdest->sub, (ListItem*)jmp);
+
+			if (dest == F->loop_ptr->out) {
 				if (!isTestOpCode(pc_1)) {
 					//breaks
 					IntListItem* intItem = NewIntListItem(pc);
@@ -1894,17 +1906,17 @@ char* ProcessCode(const Proto* f, int indent, int func_checking) {
 					local a,b,c,f
 
 					while 1 do
-					repeat
-					f(b)
-					until c
-					f(a)
+						repeat
+							f(b)
+						until c
+						f(a)
 					end
 
 					while 1 do
-					f(b)
-					if c then
-					f(a)
-					end
+						f(b)
+						if c then
+							f(a)
+						end
 					end
 					***/
 					if (!((F->loop_ptr->type == WHILE ) && (dest == F->loop_ptr->start))) {
@@ -2016,6 +2028,11 @@ char* ProcessCode(const Proto* f, int indent, int func_checking) {
 			}
 		}
 
+		if (F->jmpdests.head && cast(AstStatement*, F->jmpdests.head)->line == pc) {
+			AstStatement* jmpdest = cast(AstStatement*, RemoveFromList(&(F->jmpdests), F->jmpdests.head));
+			AddToStatement(F->currStmt, jmpdest);
+		}
+
 		if ((F->loop_ptr->start == pc) && (F->loop_ptr->type == REPEAT || F->loop_ptr->type == WHILE)) {
 			LoopItem* walk = F->loop_ptr;
 
@@ -2047,16 +2064,15 @@ char* ProcessCode(const Proto* f, int indent, int func_checking) {
 				local f, a, b, c
 
 				while test do
-				whilebody
+					whilebody
 				end
-
 
 				while 1 do
-				if test then
-				whilebody
-				else
-				break
-				end
+					if test then
+						whilebody
+					else
+						break
+					end
 				end
 				***/
 				AstStatement* loopstmt = MakeLoopStatement(WHILE_STMT, strdup("1"));
@@ -2927,11 +2943,13 @@ LOGIC_NEXT_JMP:
 
 		if (debug) {
 			TRY(ShowState(F));
+			/**
 			{
 				char* f = PrintFunction(F);
 				fprintf(stddebug, "%s\n", f);
 				free(f);
 			}
+			**/
 		}
 
 		if (GetEndifAddr(F, pc)) {
@@ -2961,8 +2979,17 @@ LOGIC_NEXT_JMP:
 	TRY(FlushBoolean(F));
 
 	if (SET_CTR(F->tpend)>0) {
-		StringBuffer_set(str, " -- WARNING: undefined locals caused missing assignments!");
+		StringBuffer_set(str, "-- WARNING: undefined locals caused missing assignments!");
 		TRY(AddStatement(F, str));
+	}
+
+	if (F->jmpdests.size > 0) {
+		StringBuffer_printf(str, "-- DECOMPILER ERROR: %d unprocessed JMP targets", F->jmpdests.size);
+		TRY(AddStatement(F, str));
+		while (F->jmpdests.head) {
+			AstStatement* jmpdest = cast(AstStatement*, RemoveFromList(&(F->jmpdests), F->jmpdests.head));
+			AddToStatement(F->currStmt, jmpdest);
+		}
 	}
 
 	if (!IsMain(f) && func_checking) {

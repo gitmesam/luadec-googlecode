@@ -4,6 +4,8 @@
 
 #include "ast.h"
 
+extern int debug;
+
 const char* stmttype[22] = {
 	"SIMPLE_STMT",
 	"BLOCK_STMT",
@@ -13,7 +15,8 @@ const char* stmttype[22] = {
 	"TFORLOOP_STMT",
 	"IF_STMT",
 	"IF_THEN_STMT",
-	"IF_ELSE_STMT"
+	"IF_ELSE_STMT",
+	"JMP_DEST_STMT"
 };
 
 void PrintIndent(StringBuffer* buff, int indent) {
@@ -121,12 +124,17 @@ void PrintLoopStatement(AstStatement* stmt, StringBuffer* buff, int indent) {
 		StringBuffer_printf(startCode, "for %s do", stmt->code);
 		StringBuffer_printf(endCode, "end");
 		break;
+	default:
+		PrintIndent(buff, indent);
+		StringBuffer_addPrintf(buff, "--  DECOMPILER ERROR: unexpected statement %s , should be one of LOOP_STMT\n", stmttype[stmt->type]);
+		goto PrintLoopStatement_ERROR_HANDLER;
 	}
 	PrintIndent(buff, indent);
 	StringBuffer_addPrintf(buff, "%s\n", StringBuffer_getRef(startCode));
 	PrintAstSub(stmt->sub, buff, indent + 1);
 	PrintIndent(buff, indent);
 	StringBuffer_addPrintf(buff, "%s\n", StringBuffer_getRef(endCode));
+PrintLoopStatement_ERROR_HANDLER:
 	StringBuffer_delete(startCode);
 	StringBuffer_delete(endCode);
 }
@@ -159,12 +167,40 @@ void PrintIfStatement(AstStatement* stmt, StringBuffer* buff, int indent, int el
 	}
 }
 
+void PrintJmpDestStatement(AstStatement* stmt, StringBuffer* buff, int indent) {
+	if (debug) {
+		ListItem* jmpitem = NULL;
+		PrintIndent(buff, indent);
+		StringBuffer_addPrintf(buff, "-- JMP target in line %d, jump from line", stmt->line);
+		jmpitem = stmt->sub->head;
+		while (jmpitem) {
+			AstStatement* jmpstmt = cast(AstStatement*, jmpitem);
+			StringBuffer_addPrintf(buff, " %d", jmpstmt->line);
+			jmpitem = jmpitem->next;
+		}
+		StringBuffer_add(buff, "\n");
+	}
+#if LUA_VERSION_NUM == 502
+	if (stmt->code != NULL) {
+		PrintIndent(buff, indent);
+		StringBuffer_addPrintf(buff, "::pc_%d::\n", stmt->line);
+	}
+#endif
+}
+
 void PrintAstStatement(AstStatement* stmt, StringBuffer* buff, int indent) {
 	if (stmt == NULL) {
 		return;
 	}
-	PrintIndent(buff, indent);
-	StringBuffer_addPrintf(buff, "-- stmt->type=%s stmt=%08x stmt->code=%08x stmt->sub=%08x\n", stmttype[stmt->type], stmt, stmt->code, stmt->sub);
+	if (debug) {
+		PrintIndent(buff, indent);
+		StringBuffer_addPrintf(buff, "-- stmt->type=%s stmt->line=%d stmt->sub->size=%d\n",
+			stmttype[stmt->type], stmt->line, (stmt->sub)?(stmt->sub->size):0);
+		/**
+		StringBuffer_addPrintf(buff, "-- stmt->type=%s stmt->line=%d stmt->sub->size=%d stmt=%08x stmt->code=%08x stmt->sub=%08x\n",
+			stmttype[stmt->type], stmt->line, (stmt->sub)?(stmt->sub->size):0, stmt, stmt->code, stmt->sub);
+		**/
+	}
 	switch (stmt->type) {
 	case SIMPLE_STMT:
 		PrintSimpleStatement(stmt, buff, indent);
@@ -178,6 +214,14 @@ void PrintAstStatement(AstStatement* stmt, StringBuffer* buff, int indent) {
 		break;
 	case IF_STMT:
 		PrintIfStatement(stmt, buff, indent, 0);
+		break;
+	case IF_THEN_STMT:
+	case IF_ELSE_STMT:
+		PrintIndent(buff, indent);
+		StringBuffer_addPrintf(buff, "--  DECOMPILER ERROR: unexpected statement %s\n", stmttype[stmt->type]);
+		break;
+	case JMP_DEST_STMT:
+		PrintJmpDestStatement(stmt, buff, indent);
 		break;
 	}
 }

@@ -17,7 +17,9 @@ enum StatementType_ {
 	TFORLOOP_STMT,
 	IF_STMT,
 	IF_THEN_STMT,
-	IF_ELSE_STMT
+	IF_ELSE_STMT,
+	// virtual statement, mark for JMP destination, some of the statements will be printed as label in 5.2
+	JMP_DEST_STMT
 };
 
 extern const char* stmttype[];

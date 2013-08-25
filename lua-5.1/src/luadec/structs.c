@@ -128,6 +128,64 @@ ListItem* RemoveFromList(List* list, ListItem* item) {
 	return item;
 }
 
+int AddAllAfterListItem(List* list, ListItem* pos, ListItem* item) {
+	ListItem* last = NULL;
+	int count = 0;
+	if (!list || !item) {
+		return count;
+	}
+	last = item;
+	count = 1;
+	while (last->next) {
+		count++;
+		last = last->next;
+	}
+	item->prev = pos;
+	if (pos == NULL) {
+		last->next = list->head;
+		list->head = item;
+	} else {
+		last->next = pos->next;
+		pos->next = item;
+	}
+	if (last->next == NULL) {
+		list->tail = last;
+	} else {
+		last->next->prev = last;
+	}
+	list->size += count;
+	return count;
+}
+
+int AddAllBeforeListItem(List* list, ListItem* pos, ListItem* item) {
+	ListItem* last = NULL;
+	int count = 0;
+	if (!list || !item) {
+		return count;
+	}
+	last = item;
+	count = 1;
+	while (last->next) {
+		count++;
+		last = last->next;
+	}
+	last->next = pos;
+	if (pos == NULL) {
+		item->prev = list->tail;
+		list->tail = last;
+	} else {
+		item->prev = pos->prev;
+		pos->prev = last;
+	}
+	if (item->prev == NULL) {
+		list->head = item;
+	} else {
+		item->prev->next = item;
+	}
+	list->size += count;
+	return count;
+}
+
 int AddToSet(IntSet* set, int a) {
 	int i;
 	if (! set->mayRepeat) {

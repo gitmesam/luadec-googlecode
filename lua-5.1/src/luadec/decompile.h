@@ -53,7 +53,7 @@ struct LoopItem_ {
 	int start;
 	int body;
 	int end;
-	int next_code;
+	int out;
 
 	int indent;
 };
@@ -97,8 +97,7 @@ struct Function_ {
 	LoopItem* loop_ptr;
 	List breaks;
 	List continues;
-	//IntSet* repeats;
-	//IntSet* untils;
+	List jmpdests;
 	/* Control of do/end blocks. */
 	IntSet* do_opens;
 	IntSet* do_closes;

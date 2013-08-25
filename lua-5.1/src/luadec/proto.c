@@ -64,6 +64,13 @@ int isUTF8(const unsigned char* buff, int size) {
 	return utf8length;
 }
 
+#define ASCII 437
+#define GB2312 20936
+#define GBK 936
+#define GB18030 54936
+#define BIG5 950
+#define UTF8 65001
+
 // PrintString from luac is not 8-bit clean
 char* DecompileString(const Proto* f, int n) {
 	int i, utf8length;
@@ -115,9 +122,9 @@ char* DecompileString(const Proto* f, int n) {
 			ret[p++] = '\'';
 			break;
 		default:
-			if (*s >= 32 && *s <= 127) {
+			if (*s >= 0x20 && *s < 0x7F) {
 				ret[p++] = *s;
-#ifdef STRING_GB2312
+#if STRING_LOCALE == GB2312
 			} else if ( i+1 < len
 				&& *s >= 0xA1 && *s <= 0xF7
 				&& *(s+1) >= 0xA1 && *(s+1) <= 0xFE
@@ -126,7 +133,7 @@ char* DecompileString(const Proto* f, int n) {
 				i++; s++;
 				ret[p++] = *s;
 #endif
-#if defined(STRING_GBK) || defined(STRING_GB18030)
+#if STRING_LOCALE == GBK || STRING_LOCALE == GB18030
 			} else if ( i+1 < len
 				&& *s >= 0x81 && *s <= 0xFE
 				&& *(s+1) >= 0x40 && *(s+1) <= 0xFE && *(s+1) != 0x7F
@@ -135,7 +142,7 @@ char* DecompileString(const Proto* f, int n) {
 				i++; s++;
 				ret[p++] = *s;
 #endif
-#ifdef STRING_GB18030
+#if STRING_LOCALE == GB18030
 			} else if ( i+3 < len
 				&& *s >= 0x81 && *s <= 0xFE
 				&& *(s+1) >= 0x30 && *(s+1) <= 0x39
@@ -150,7 +157,7 @@ char* DecompileString(const Proto* f, int n) {
 				i++; s++;
 				ret[p++] = *s;
 #endif
-#ifdef STRING_BIG5
+#if STRING_LOCALE == BIG5
 			} else if ( i+1 < len
 				&& *s >= 0x81 && *s <= 0xFE
 				&& ((*(s+1) >= 0x40 && *(s+1) <= 0x7E) || (*(s+1) >= 0xA1 && *(s+1) <= 0xFE))
@@ -159,7 +166,7 @@ char* DecompileString(const Proto* f, int n) {
 				i++; s++;
 				ret[p++] = *s;
 #endif
-#ifdef STRING_UTF8
+#if STRING_LOCALE == UTF8
 			} else if ((utf8length = isUTF8(s, len-i)) > 1) {
 				int j;
 				ret[p++] = *s;	

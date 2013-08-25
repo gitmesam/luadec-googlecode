@@ -20,8 +20,8 @@ struct List_ {
 	int size;
 };
 
-typedef void (*ListItemFn) (ListItem*, void*);
-typedef int (*ListItemCmpFn) (ListItem*, const void*);
+typedef void (*ListItemFn)(ListItem*, void*);
+typedef int (*ListItemCmpFn)(ListItem*, const void*);
 
 List* NewList();
 void InitList(List* list);
@@ -35,6 +35,8 @@ void ClearList(List* list, ListItemFn fn);
 ListItem* FindFromListHead(List* list, ListItemCmpFn cmp, const void* sample);
 ListItem* FindFromListTail(List* list, ListItemCmpFn cmp, const void* sample);
 ListItem* RemoveFromList(List* list, ListItem* item);
+int AddAllAfterListItem(List* list, ListItem* pos, ListItem* item);
+int AddAllBeforeListItem(List* list, ListItem* pos, ListItem* item);
 
 /*
 ** IntSet is a Stack that has a limited capacity

@@ -6,8 +6,6 @@
 #include <ctype.h>
 #include <assert.h>
 
-#define DEBUG_PRINT
-
 #include "ldebug.h"
 #include "lobject.h"
 #include "lopcodes.h"
@@ -18,6 +16,8 @@
 #include "structs.h"
 #include "proto.h"
 #include "decompile.h"
+
+#define DEBUG_PRINT
 
 extern lua_State* glstate;
 
