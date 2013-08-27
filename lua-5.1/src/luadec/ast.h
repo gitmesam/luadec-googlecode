@@ -22,8 +22,6 @@ enum StatementType_ {
 	JMP_DEST_STMT
 };
 
-extern const char* stmttype[];
-
 typedef struct AstStatement_ AstStatement;
 struct AstStatement_ {
 	ListItem super;

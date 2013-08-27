@@ -6,7 +6,7 @@
 
 extern int debug;
 
-const char* stmttype[22] = {
+static const char* stmttype[22] = {
 	"SIMPLE_STMT",
 	"BLOCK_STMT",
 	"WHILE_STMT",
@@ -141,6 +141,7 @@ PrintLoopStatement_ERROR_HANDLER:
 
 void PrintIfStatement(AstStatement* stmt, StringBuffer* buff, int indent, int elseif) {
 	AstStatement* thenstmt = cast(AstStatement*, stmt->sub->head);
+	List* thensub = thenstmt->sub;
 	AstStatement* elsestmt = cast(AstStatement*, stmt->sub->tail);
 	List* elsesub = elsestmt->sub;
 	int elsesize = elsesub->size;
@@ -152,7 +153,12 @@ void PrintIfStatement(AstStatement* stmt, StringBuffer* buff, int indent, int el
 		PrintIndent(buff, indent);
 		StringBuffer_addPrintf(buff, "if %s then\n", stmt->code);
 	}
-	PrintAstSub(thenstmt->sub, buff, indent + 1);
+	if (debug) {
+		PrintIndent(buff, indent + 1);
+		StringBuffer_addPrintf(buff, "-- AstStatement type=IF_THEN_STMT line=%d size=%d\n",
+			thenstmt->line, thensub->size);
+	}
+	PrintAstSub(thensub, buff, indent + 1);
 	if (elsesize == 0) {
 		PrintIndent(buff, indent);
 		StringBuffer_add(buff, "end\n");
@@ -161,6 +167,11 @@ void PrintIfStatement(AstStatement* stmt, StringBuffer* buff, int indent, int el
 	} else {
 		PrintIndent(buff, indent);
 		StringBuffer_add(buff, "else\n");
+		if (debug) {
+			PrintIndent(buff, indent + 1);
+			StringBuffer_addPrintf(buff, "-- AstStatement type=IF_ELSE_STMT line=%d size=%d\n",
+				elsestmt->line, elsesize);
+		}
 		PrintAstSub(elsesub, buff, indent + 1);
 		PrintIndent(buff, indent);
 		StringBuffer_add(buff, "end\n");
@@ -171,7 +182,7 @@ void PrintJmpDestStatement(AstStatement* stmt, StringBuffer* buff, int indent) {
 	if (debug) {
 		ListItem* jmpitem = NULL;
 		PrintIndent(buff, indent);
-		StringBuffer_addPrintf(buff, "-- JMP target in line %d, jump from line", stmt->line);
+		StringBuffer_addPrintf(buff, "-- JMP destination in line %d, jump from line", stmt->line);
 		jmpitem = stmt->sub->head;
 		while (jmpitem) {
 			AstStatement* jmpstmt = cast(AstStatement*, jmpitem);
@@ -194,7 +205,7 @@ void PrintAstStatement(AstStatement* stmt, StringBuffer* buff, int indent) {
 	}
 	if (debug) {
 		PrintIndent(buff, indent);
-		StringBuffer_addPrintf(buff, "-- stmt->type=%s stmt->line=%d stmt->sub->size=%d\n",
+		StringBuffer_addPrintf(buff, "-- AstStatement type=%s line=%d size=%d\n",
 			stmttype[stmt->type], stmt->line, (stmt->sub)?(stmt->sub->size):0);
 		/**
 		StringBuffer_addPrintf(buff, "-- stmt->type=%s stmt->line=%d stmt->sub->size=%d stmt=%08x stmt->code=%08x stmt->sub=%08x\n",
