@@ -39,22 +39,33 @@ int AddAllAfterListItem(List* list, ListItem* pos, ListItem* item);
 int AddAllBeforeListItem(List* list, ListItem* pos, ListItem* item);
 
 /*
-** IntSet is a Stack that has a limited capacity
+** IntSet is a Set that contains int
 */
 typedef struct IntSet_ IntSet;
 struct IntSet_ {
-	int values[MAXARG_A + 1];
-	int ctr;
+	List list;
 	int mayRepeat;
 };
 
+typedef struct IntSetItem_ IntSetItem;
+struct IntSetItem_ {
+	ListItem super;
+	int value;
+};
+
+#define SET_SIZE(s) ((s)->list.size)
+#define SET_IS_EMPTY(s) ((s)->list.size == 0)
+
+IntSet* NewIntSet(int mayRepeat);
+void InitIntSet(IntSet* set, int mayRepeat);
+void DeleteIntSet(IntSet* set);
 int AddToSet(IntSet* set, int a);
 int PeekSet(IntSet* set, int a);
 int PopSet(IntSet* set);
 int RemoveFromSet(IntSet* set, int a);
 
 /*
-** a Stack use List
+** a Stack that use List
 */
 typedef struct VarListItem_ VarListItem;
 struct VarListItem_ {

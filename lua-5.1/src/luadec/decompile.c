@@ -63,10 +63,6 @@ const char* getupval(Function* F, int r) {
 #define IS_TABLE(r) F->Rtabl[r]
 #define IS_VARIABLE(r) F->Rvar[r]
 
-#define SET_CTR(s) s->ctr
-#define SET(s,y) s->values[y]
-#define SET_IS_EMPTY(s) (s->ctr == 0)
-
 #define fb2int(x)	(luaO_fb2int(x))
 #define int2fb(x)	(luaO_int2fb(x))
 #define MAX(a,b) (((a)>(b))?(a):(b))
@@ -566,7 +562,7 @@ char* OutputBoolean(Function* F, int* endif, int test) {
 	char* result = NULL;
 	LogicExp* exp = NULL;
 
-	FlushElse(F);
+	//FlushElse(F);
 	if (error) goto OutputBoolean_CLEAR_HANDLER1;
 	exp = MakeBoolean(F, endif, &thenaddr);
 	if (error) goto OutputBoolean_CLEAR_HANDLER1;
@@ -702,7 +698,7 @@ void FlushWhile1(Function* F) {
 }
 
 void FlushBoolean(Function* F) {
-	FlushElse(F);
+	//FlushElse(F);
 	if (F->bools.size == 0) {
 		FlushWhile1(F);
 	}
@@ -859,7 +855,7 @@ void AssignReg(Function* F, int reg, const char* src, int prio, int mayTest) {
 	F->Rprio[reg] = prio;
 
 	if (debug) {
-		printf("SET_CTR(Tpend) = %d \n", SET_CTR(F->tpend));
+		printf("SET_SIZE(tpend) = %d \n", SET_SIZE(F->tpend));
 	}
 
 	nsrc = luadec_strdup(src);
@@ -1147,22 +1143,22 @@ void DeleteBoolOp(BoolOp* ptr){
 Function* NewFunction(const Proto* f) {
 	int i;
 	Function* self = (Function*)calloc(1, sizeof(Function));
-	self->funcBlock = MakeBlockStatement();
-	self->currStmt = self->funcBlock;
 	self->f = f;
 	InitList(&(self->vpend));
-	self->tpend = (IntSet*)calloc(1, sizeof(IntSet));
-	self->tpend->ctr = 0;
+	self->tpend = NewIntSet(0);
 
 	self->loop_tree = NewLoopItem(FUNC_ROOT,-1,-1,0,f->sizecode-1,f->sizecode);
 	self->loop_ptr = self->loop_tree;
+
+	self->funcBlock = MakeBlockStatement();
+	self->currStmt = self->funcBlock;
 
 	InitList(&(self->breaks));
 	InitList(&(self->continues));
 	InitList(&(self->jmpdests));
 
-	self->do_opens = (IntSet*)calloc(1, sizeof(IntSet));
-	self->do_closes = (IntSet*)calloc(1, sizeof(IntSet));
+	self->do_opens = NewIntSet(0);
+	self->do_closes = NewIntSet(0);
 	self->decompiledCode = StringBuffer_new(NULL);
 
 	InitList(&(self->bools));
@@ -1185,13 +1181,13 @@ void DeleteFunction(Function* self) {
 	}
 	StringBuffer_delete(self->decompiledCode);
 	ClearList(&(self->vpend), (ListItemFn)ClearVarListItem);
-	free(self->tpend);
+	DeleteIntSet(self->tpend);
 	ClearList(&(self->breaks), NULL);
 	ClearList(&(self->continues), NULL);
 	ClearList(&(self->jmpdests), (ListItemFn)ClearAstStatement);
 	DeleteLoopTree(self->loop_tree);
-	free(self->do_opens);
-	free(self->do_closes);
+	DeleteIntSet(self->do_opens);
+	DeleteIntSet(self->do_closes);
 	free(self);
 }
 
@@ -1332,9 +1328,9 @@ void DeclareLocals(Function* F) {
 				int r = i;
 				name = (char*)calloc(10, sizeof(char));
 				sprintf(name,"l_%d_%d",functionnum,i);
-				if (F->internal[r]) {
+				if (F->Rinternal[r]) {
 					names[r] = name;
-					F->internal[r] = 0;
+					F->Rinternal[r] = 0;
 					internalLocals++;
 					continue;
 				}
@@ -1376,11 +1372,11 @@ void DeclareLocals(Function* F) {
 					continue;
 				}
 			}
-			if ((F->internal[r])) {
+			if ((F->Rinternal[r])) {
 				names[r] = LOCAL(i);
 				PENDING(r) = 0;
 				IS_VARIABLE(r) = 1;
-				F->internal[r] = 0;
+				F->Rinternal[r] = 0;
 				internalLocals++;
 				continue;
 			}
@@ -1619,14 +1615,16 @@ void ShowState(Function* F) {
 		walk = walk->next;
 	}
 	fprintf(stddebug, "\n");
-	fprintf(stddebug, "tpend(%d): ", SET_CTR(F->tpend));
-	for (i = 0; i < SET_CTR(F->tpend); i++) {
-		int r = SET(F->tpend, i);
+	fprintf(stddebug, "tpend(%d): ", SET_SIZE(F->tpend));
+	walk = F->tpend->list.head;
+	while (walk) {
+		int r = cast(IntSetItem*, walk)->value;
 		fprintf(stddebug, "%d{%s} ", r, REGISTER(r));
 		if (!PENDING(r)) {
 			SET_ERROR(F,"Confused about usage of registers for temporaries");
 			return;
 		}
+		walk = walk->next;
 	}
 	fprintf(stddebug, "\n");
 }
@@ -1649,24 +1647,21 @@ void DeclareLocal(Function* F, int ixx, const char* value) {
 }
 
 void DeclarePendingLocals(Function* F) {
-	int i;
-	int maxnum = 0;
-	int nums[201];
 	StringBuffer* str = StringBuffer_new(NULL);
-	if (SET_CTR(F->tpend)>0) {
+	if (SET_SIZE(F->tpend)>0) {
 		if (guess_locals) {
 			StringBuffer_set(str,"-- WARNING: pending registers.");
 		} else {
+			ListItem* walk = F->tpend->list.head;
 			StringBuffer_set(str,"-- WARNING: pending registers. Declaring locals.");
 			AddStatement(F,str);
-			for (i= 0; i < SET_CTR(F->tpend); i++) {
-				nums[maxnum] = SET(F->tpend, i);
-				maxnum ++;
-			}
-			for (i = 0; i< maxnum; i++) {
-				char* s = luadec_strdup(REGISTER(nums[i]));
-				GetR(F,nums[i]);
-				DeclareLocal(F,nums[i],s);
+			while (walk) {
+				int reg = cast(IntSetItem*, walk)->value;
+				char* s = luadec_strdup(REGISTER(reg));
+				GetR(F, reg);
+				DeclareLocal(F, reg, s);
+				free(s);
+				walk = walk->next;
 			}
 		}
 	}
@@ -2428,6 +2423,21 @@ char* ProcessCode(const Proto* f, int indent, int func_checking) {
 				  F->indent--;
 				  F->elsePending = dest;
 				  F->elseStart = pc + 2;
+
+				if (F->currStmt->type == IF_THEN_STMT) {
+					AstStatement* lastif = F->currStmt->parent;
+					F->currStmt = cast(AstStatement*, lastif->sub->tail);
+					/* this test circumvents jump-to-jump optimization at
+					the end of if blocks */
+					if (!PeekEndifAddr(F, F->pc + 3)) {
+						StoreEndifAddr(F, F->elsePending);
+					}
+					F->elseWritten = 1;
+				} else {
+					SET_ERROR(F,"unexpected 'else' of 'if'");
+				}
+				F->elsePending = 0;
+				F->elseStart = 0;
 			  }else if (GET_OPCODE(idest) == OP_TFORLOOP) { // jmp of generic for
 				  /*
 				  * generic 'for'
@@ -2477,7 +2487,7 @@ char* ProcessCode(const Proto* f, int indent, int func_checking) {
 					  } else {
 						  vname[i-1] = F->R[a+2+i];
 					  }
-					  F->internal[a+2+i] = 1;
+					  F->Rinternal[a+2+i] = 1;
 				  }
 
 				  DeclarePendingLocals(F);
@@ -2489,9 +2499,9 @@ char* ProcessCode(const Proto* f, int indent, int func_checking) {
 				  StringBuffer_addPrintf(str," in ");
 				  StringBuffer_addPrintf(str,"%s",generator);
 
-				  F->internal[a] = 1;
-				  F->internal[a + 1] = 1;
-				  F->internal[a + 2] = 1;
+				  F->Rinternal[a] = 1;
+				  F->Rinternal[a + 1] = 1;
+				  F->Rinternal[a + 2] = 1;
 
 				  F->intbegin[F->intspos] = a;
 				  F->intend[F->intspos] = a+2+c;
@@ -2744,7 +2754,7 @@ LOGIC_NEXT_JMP:
 			  {
 				  //fprintf(stderr,"X %d\n",i);
 				  IS_VARIABLE(i)=0;
-				  F->internal[i] = 0;
+				  F->Rinternal[i] = 0;
 			  }
 			  F->intspos--;
 			  F->ignore_for_variables = 0;
@@ -2763,7 +2773,7 @@ LOGIC_NEXT_JMP:
 			  for (i=F->intbegin[F->intspos]; i<=F->intend[F->intspos]; i++)
 			  {
 				  IS_VARIABLE(i)=0;
-				  F->internal[i] = 0;
+				  F->Rinternal[i] = 0;
 			  }
 			  F->intspos--;
 
@@ -2844,10 +2854,10 @@ LOGIC_NEXT_JMP:
 			  /*
 			  * Every numeric 'for' declares 4 variables.
 			  */
-			  F->internal[a] = 1;
-			  F->internal[a + 1] = 1;
-			  F->internal[a + 2] = 1;
-			  F->internal[a + 3] = 1;
+			  F->Rinternal[a] = 1;
+			  F->Rinternal[a + 1] = 1;
+			  F->Rinternal[a + 2] = 1;
+			  F->Rinternal[a + 3] = 1;
 			  F->intbegin[F->intspos] = a;
 			  F->intend[F->intspos] = a+3;
 			  forstmt = MakeLoopStatement(FORLOOP_STMT, StringBuffer_getBuffer(str));
@@ -2978,7 +2988,7 @@ LOGIC_NEXT_JMP:
 
 	TRY(FlushBoolean(F));
 
-	if (SET_CTR(F->tpend)>0) {
+	if (SET_SIZE(F->tpend)>0) {
 		StringBuffer_set(str, "-- WARNING: undefined locals caused missing assignments!");
 		TRY(AddStatement(F, str));
 	}

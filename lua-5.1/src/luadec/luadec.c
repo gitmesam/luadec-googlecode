@@ -180,7 +180,7 @@ int Inject(Proto * fp, int functionnum) {
 int LocalsLoad(const char* text) {
 	int f,i,c,n;
 	char number[255];
-	if (text == NULL || *text == NULL) {
+	if (text == NULL || *text == '\0') {
 		return 0;
 	}
 	for (f=0;f<255;f++) {

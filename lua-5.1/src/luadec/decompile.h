@@ -60,6 +60,8 @@ struct LoopItem_ {
 
 typedef struct Function_ Function;
 struct Function_ {
+	/* This is the Lua proto for the function */
+	const Proto* f;
 	/* program counter during symbolic interpretation */
 	int pc;
 	/* These act as the VM registers */
@@ -71,19 +73,16 @@ struct Function_ {
 	int Rtabl[MAXARG_A];
 	/* Registers standing for local variables. */
 	int Rvar[MAXARG_A];
-	/* Registers used in call returns. */
+	/* Pending code to be flushed */
+	int Rpend[MAXARG_A];
+	/* Registers for internal use */
+	int Rinternal[MAXARG_A];
+	/* Registers used in call returns */
 	int Rcall[MAXARG_A];
-	/* This is the Lua proto for the function */
-	const Proto* f;
-	/* This is a stack for creation of tables */
-	List tables;
 	/* 'a' of last CALL instruction -- used with 0-param CALLs */
 	int lastCall;
-	/* Pending code to be flushed */
-	/* FIXME: Needs a better data structure */
-	char* vpendVal[MAXARG_A];
-	int internal[MAXARG_A];
-	int Rpend[MAXARG_A];
+	/* This is a list for creation of tables */
+	List tables;
 	/* State variables for the TEST instruction. */
 	int testpending;
 	int elsePending;
@@ -92,11 +91,15 @@ struct Function_ {
 	List vpend;
 	/* Pending temp-registers */
 	IntSet* tpend;
-	/* Line number of detected constructs. */
+	/* Loop Tree Structure */
 	LoopItem* loop_tree;
+	/* Pointer to Current Loop */
 	LoopItem* loop_ptr;
+	/* List for 'break' */
 	List breaks;
+	/* List for 'continue' */
 	List continues;
+	/* List of destination pc of JMP */
 	List jmpdests;
 	/* Control of do/end blocks. */
 	IntSet* do_opens;
