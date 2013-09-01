@@ -37,6 +37,11 @@ AstStatement* MakeBlockStatement();
 AstStatement* MakeLoopStatement(StatementType type, char* test);
 AstStatement* MakeIfStatement(char* test);
 
+#define ThenStmt(ifstmt) cast(AstStatement*, (ifstmt)->sub->head)
+#define ElseStmt(ifstmt) cast(AstStatement*, (ifstmt)->sub->tail)
+#define ThenStart(ifstmt) (cast(AstStatement*, (ifstmt)->sub->head)->line)
+#define ElseStart(ifstmt) (cast(AstStatement*, (ifstmt)->sub->tail)->line)
+
 void ClearAstStatement(AstStatement* stmt, void* dummy);
 void DeleteAstStatement(AstStatement* stmt);
 

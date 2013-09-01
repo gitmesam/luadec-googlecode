@@ -16,12 +16,6 @@ struct BoolOp_ {
 	int dest;
 };
 
-typedef struct Endif_ Endif;
-struct Endif_ {
-	int addr;
-	Endif* next;
-};
-
 typedef struct Statement_ Statement;
 struct Statement_ {
 	ListItem super;
@@ -85,8 +79,7 @@ struct Function_ {
 	List tables;
 	/* State variables for the TEST instruction. */
 	int testpending;
-	int elsePending;
-	int elseStart;
+	int testjump;
 	/* Pending variable-registers */
 	List vpend;
 	/* Pending temp-registers */
@@ -110,7 +103,6 @@ struct Function_ {
 	int freeLocal;
 	/* boolean operations */
 	List bools;
-	Endif* nextEndif;
 
 	AstStatement* funcBlock;
 	AstStatement* currStmt;
@@ -120,8 +112,6 @@ struct Function_ {
 	StringBuffer* decompiledCode;
 	/* indent */
 	int indent;
-	int elseWritten;
-	int testjump;
 
 	/* internal variable stack */
 	int intspos;

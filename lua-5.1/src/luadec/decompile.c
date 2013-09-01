@@ -63,8 +63,8 @@ const char* getupval(Function* F, int r) {
 #define IS_TABLE(r) F->Rtabl[r]
 #define IS_VARIABLE(r) F->Rvar[r]
 
-#define fb2int(x)	(luaO_fb2int(x))
-#define int2fb(x)	(luaO_int2fb(x))
+#define fb2int(x) (luaO_fb2int(x))
+#define int2fb(x) (luaO_int2fb(x))
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
 #define SET_ERROR(F,e) { StringBuffer_printf(errorStr,"-- DECOMPILER ERROR: %s\n", (e)); RawAddStatement((F),errorStr); }
@@ -77,15 +77,15 @@ static int errorCode;
 
 int GetJmpAddr(Function* F, int addr) {
 	int real_end = addr;
-	if(real_end >= F->f->sizecode) {
+	if (real_end >= F->f->sizecode) {
 		real_end = F->f->sizecode;
 		return real_end;
 	}
-	if(real_end < 0) {
+	if (real_end < 0) {
 		real_end = -1;
 		return real_end;
 	}
-	while(GET_OPCODE(F->f->code[real_end]) == OP_JMP) {
+	while (GET_OPCODE(F->f->code[real_end]) == OP_JMP) {
 		real_end = GETARG_sBx(F->f->code[real_end]) + real_end + 1;
 	}
 	return real_end;
@@ -334,7 +334,7 @@ void TieAsSubExp(LogicExp* parent, LogicExp* item) {
 	}
 }
 
-LogicExp* MakeBoolean(Function* F, int* endif, int* thenaddr) {
+LogicExp* MakeBoolean(Function* F, int* thenaddr, int* endif) {
 	int i;
 	int firstaddr, elseaddr;
 	BoolOp *first, *realLast, *last, *tmpLast, *curr;
@@ -369,24 +369,22 @@ LogicExp* MakeBoolean(Function* F, int* endif, int* thenaddr) {
 		}
 	}
 
-	{
-		tmpLast = last;
-		for (curr = first; curr && curr != tmpLast; curr = cast(BoolOp*, curr->super.next)) {
-			int dest = curr->dest;
-			if (elseaddr > firstaddr) {
-				if (dest < firstaddr) {
-					last = curr;
-					*thenaddr = curr->pc + 2;
-					elseaddr = dest;
-				}
+	tmpLast = last;
+	for (curr = first; curr && curr != tmpLast; curr = cast(BoolOp*, curr->super.next)) {
+		int dest = curr->dest;
+		if (elseaddr > firstaddr) {
+			if (dest < firstaddr) {
+				last = curr;
+				*thenaddr = curr->pc + 2;
+				elseaddr = dest;
+			}
+		} else {
+			if (dest == firstaddr) {
+				last = curr;
+				*thenaddr = curr->pc + 2;
+				elseaddr = dest;
 			} else {
-				if (dest == firstaddr) {
-					last = curr;
-					*thenaddr = curr->pc + 2;
-					elseaddr = dest;
-				} else {
-					break;
-				}
+				break;
 			}
 		}
 	}
@@ -399,8 +397,9 @@ LogicExp* MakeBoolean(Function* F, int* endif, int* thenaddr) {
 		TieAsSubExp(firstExp, currExp);
 	} else {
 		firstExp = currExp;
-		if (endif)
+		if (endif) {
 			*endif = dest;
+		}
 	}
 
 	if (debug) {
@@ -434,7 +433,7 @@ LogicExp* MakeBoolean(Function* F, int* endif, int* thenaddr) {
 			if (endif) {
 				if ((op->op != OP_TEST) && (op->op != OP_TESTSET)) {
 					if (*endif != 0 && *endif != dest) {
-						SET_ERROR(F,"unhandled construct in 'if'");
+						SET_ERROR(F,"unhandled construct in 'MakeBoolean'");
 						//return NULL;
 					}
 				}
@@ -463,7 +462,8 @@ LogicExp* MakeBoolean(Function* F, int* endif, int* thenaddr) {
 				TieAsNext(currExp, exp);
 				currExp = currExp->parent;
 				if (!currExp->is_chain) {
-					SET_ERROR(F,"unhandled construct in 'if'");
+					DeleteLogicExpTree(firstExp);
+					SET_ERROR(F,"unhandled construct in 'MakeBoolean'");
 					return NULL;
 				};
 				prevParent = currExp->parent;
@@ -481,6 +481,9 @@ LogicExp* MakeBoolean(Function* F, int* endif, int* thenaddr) {
 					// todo
 					TieAsNext(prevParent, chain);
 				}
+			} else {
+				SET_ERROR(F,"unhandled construct in 'MakeBoolean'");
+				DeleteLogicExpSubTree(exp);
 			}
 		} else if (dest > firstaddr && dest < currExp->dest) {
 			/* start a new chain */
@@ -489,7 +492,9 @@ LogicExp* MakeBoolean(Function* F, int* endif, int* thenaddr) {
 			TieAsNext(currExp, subexp);
 			currExp = exp;
 		} else {
-			SET_ERROR(F,"unhandled construct in 'if'");
+			DeleteLogicExpSubTree(exp);
+			DeleteLogicExpTree(firstExp);
+			SET_ERROR(F,"unhandled construct in 'MakeBoolean'");
 			return NULL;
 		}
 
@@ -555,16 +560,13 @@ WriteBoolean_CLEAR_HANDLER1:
 	return result;
 }
 
-void FlushElse(Function* F);
-
 char* OutputBoolean(Function* F, int* endif, int test) {
 	int thenaddr;
 	char* result = NULL;
 	LogicExp* exp = NULL;
 
-	//FlushElse(F);
 	if (error) goto OutputBoolean_CLEAR_HANDLER1;
-	exp = MakeBoolean(F, endif, &thenaddr);
+	exp = MakeBoolean(F, &thenaddr, endif);
 	if (error) goto OutputBoolean_CLEAR_HANDLER1;
 	result = WriteBoolean(exp, &thenaddr, endif, test);	
 	if (error) goto OutputBoolean_CLEAR_HANDLER1;
@@ -574,67 +576,6 @@ OutputBoolean_CLEAR_HANDLER1:
 	//if (error) { free(result); return NULL; }
 
 	return result;
-}
-
-void StoreEndifAddr(Function* F, int addr) {
-	Endif* at = F->nextEndif;
-	Endif* prev = NULL;
-	Endif* newEndif = (Endif*)calloc(1, sizeof(Endif));
-	newEndif->addr = addr;
-	while (at && at->addr < addr) {
-		prev = at;
-		at = at->next;
-	}
-	if (!prev) {
-		newEndif->next = F->nextEndif;
-		F->nextEndif = newEndif;
-	} else {
-		newEndif->next = at;
-		prev->next = newEndif;
-	}
-	if (debug) {
-		printf("Stored at endif list: ");
-		for (at = F->nextEndif; at != NULL; at = at->next) {
-			if (at == newEndif)
-				printf("<%d> ", at->addr);
-			else
-				printf("%d ", at->addr);
-		}
-		printf("\n");
-	}
-}
-
-int PeekEndifAddr(Function* F, int addr) {
-	Endif* at = F->nextEndif;
-	while (at) {
-		if (at->addr == addr)
-			return 1;
-		else if (at->addr > addr)
-			break;
-		at = at->next;
-	}
-	return 0;
-}
-
-int GetEndifAddr(Function* F, int addr) {
-	Endif* at = F->nextEndif;
-	Endif* prev = NULL;
-
-	addr = GetJmpAddr(F,addr - 1) + 1;
-	while (at) {
-		if (at->addr == addr) {
-			if (prev)
-				prev->next = at->next;
-			else
-				F->nextEndif = at->next;
-			free(at);
-			return 1;
-		} else if (at->addr > addr)
-			break;
-		prev = at;
-		at = at->next;
-	}
-	return 0;
 }
 
 void RawAddAstStatement(Function* F, AstStatement* stmt) {
@@ -698,7 +639,6 @@ void FlushWhile1(Function* F) {
 }
 
 void FlushBoolean(Function* F) {
-	//FlushElse(F);
 	if (F->bools.size == 0) {
 		FlushWhile1(F);
 	}
@@ -710,7 +650,7 @@ void FlushBoolean(Function* F) {
 		LogicExp* exp = NULL;
 		LoopItem* walk = NULL;
 
-		exp = MakeBoolean(F, &endif, &thenaddr);
+		exp = MakeBoolean(F, &thenaddr, &endif);
 		if (error) goto FlushBoolean_CLEAR_HANDLER1;
 
 		test = WriteBoolean(exp, &thenaddr, &endif, 0);
@@ -733,12 +673,12 @@ void FlushBoolean(Function* F) {
 		} else {
 			AstStatement* ifstmt = NULL;
 			FlushWhile1(F);
-			StoreEndifAddr(F, endif);
 			ifstmt = MakeIfStatement(test);
+			ThenStart(ifstmt) = thenaddr;
+			ElseStart(ifstmt) = endif - 1;
 			test = NULL;
 			RawAddAstStatement(F, ifstmt);
-			F->currStmt = cast(AstStatement*, ifstmt->sub->head);
-			F->elseWritten = 0;
+			F->currStmt = ThenStmt(ifstmt);
 		}
 
 FlushBoolean_CLEAR_HANDLER1:
@@ -770,59 +710,6 @@ void AddAstStatement(Function* F, AstStatement* stmt) {
 	if (error) return;
 
 	RawAddAstStatement(F, stmt);
-}
-
-void FlushElse(Function* F) {
-	if (F->elsePending > 0) {
-		BoolOp* firstBool = cast(BoolOp*, FirstItem(&(F->bools)));
-		int fpc = firstBool ? firstBool->pc : -1;
-		/* Should elseStart be a stack? */
-		if (F->bools.size > 0 && (fpc == F->elseStart || fpc-1 == F->elseStart)) {
-			int endif, thenaddr;
-			char* test = NULL;
-			StringBuffer* str = StringBuffer_new(NULL);
-			LogicExp* exp = NULL;
-			exp = MakeBoolean(F, &endif, &thenaddr);
-			if (error) goto FlushElse_CLEAR_HANDLER1;
-			test = WriteBoolean(exp, &thenaddr, &endif, 0);
-			if (error) goto FlushElse_CLEAR_HANDLER1;
-			StoreEndifAddr(F, endif);
-			if (F->currStmt->type == IF_THEN_STMT) {
-				AstStatement* newif = NULL;
-				AstStatement* lastif = F->currStmt->parent;
-				F->currStmt = cast(AstStatement*, lastif->sub->tail);
-				newif = MakeIfStatement(test);
-				test = NULL;
-				RawAddAstStatement(F, newif);
-				F->currStmt = cast(AstStatement*, newif->sub->head);
-				F->elseWritten = 0;
-			} else {
-				SET_ERROR(F,"unexpected 'else' of 'if'");
-				goto FlushElse_CLEAR_HANDLER1;
-			}
-
-
-FlushElse_CLEAR_HANDLER1:
-			if (exp) DeleteLogicExpTree(exp);
-			if (test) free(test);
-			StringBuffer_delete(str);
-			if (error) return;
-		} else {
-			if (F->currStmt->type == IF_THEN_STMT) {
-				AstStatement* lastif = F->currStmt->parent;
-				F->currStmt = cast(AstStatement*, lastif->sub->tail);
-				/* this test circumvents jump-to-jump optimization at
-				the end of if blocks */
-				if (!PeekEndifAddr(F, F->pc + 3))
-					StoreEndifAddr(F, F->elsePending);
-				F->elseWritten = 1;
-			} else {
-				SET_ERROR(F,"unexpected 'else' of 'if'");
-			}
-		}
-		F->elsePending = 0;
-		F->elseStart = 0;
-	}
 }
 
 /*
@@ -890,7 +777,7 @@ void AssignReg(Function* F, int reg, const char* src, int prio, int mayTest) {
 }
 
 /*
-* Table Functions
+** Table Functions
 */
 
 DecTableItem* NewTableItem(const char* value, int num, const char* key) {
@@ -989,7 +876,7 @@ char* PrintTable(Function* F, int r, int returnCopy) {
 	if (error) {
 		result = NULL;
 	}else if (returnCopy){
-		result = StringBuffer_getCopy(str);
+		result = StringBuffer_getBuffer(str);
 	}
 	StringBuffer_delete(str);
 	CloseTable(F, r);
@@ -1093,7 +980,7 @@ int SetTable(Function* F, int a, char* bstr, char* cstr) {
 }
 
 /*
-*	Boolop Functions
+** BoolOp Functions
 */
 
 BoolOp* NewBoolOp() {
@@ -1137,7 +1024,7 @@ void DeleteBoolOp(BoolOp* ptr){
 }
 
 /*
-* -------------------------------------------------------------------------
+** -------------------------------------------------------------------------
 */
 
 Function* NewFunction(const Proto* f) {
@@ -1419,24 +1306,6 @@ void DeclareLocals(Function* F) {
 }
 
 void PrintFunctionCheck(Function* F) {
-	if (F->nextEndif){
-		// if you come here, something must be wrong
-		// F->nextEndif should be cleared in function int GetEndifAddr(Function* F, int addr)
-		// you may get -- WARNING: missing end command somewhere! Added here
-		StringBuffer* str = StringBuffer_new("-- WARNING: F->nextEndif is not empty. Unhandled nextEndif->addr = ");
-		AstStatement* stmt = NULL;
-		Endif* ptr = F->nextEndif;
-		while (ptr) {			
-			StringBuffer_addPrintf(str, "%d ", ptr->addr);
-			F->nextEndif = ptr->next;
-			free(ptr);
-			ptr = F->nextEndif;
-		}
-		stmt = MakeSimpleStatement(StringBuffer_getBuffer(str));
-		stmt->line = F->pc;
-		AddToStatement(F->currStmt, stmt);
-		StringBuffer_delete(str);
-	}
 }
 
 char* PrintFunction(Function* F) {
@@ -1449,7 +1318,7 @@ char* PrintFunction(Function* F) {
 }
 
 /*
-* -------------------------------------------------------------------------
+** -------------------------------------------------------------------------
 */
 
 char* RegisterOrConstant(Function* F, int r) {
@@ -1485,12 +1354,13 @@ const char* keywords[] = {
 	"while", "continue", "goto"
 };
 
-/* type: DOT=0,SELF=1,TABLE=2
-* input and output
-* rstr  "a"  " a"    "not"    a
-* SELF  :a   ERROR   ERROR    ERROR
-* DOT   .a   [" a"]  ["not"]  [a]
-* TABLE  a   [" a"}  ["not"]  [a]
+/*
+** type: DOT=0,SELF=1,TABLE=2
+** input and output
+** rstr  "a"  " a"    "not"    a
+** SELF  :a   ERROR   ERROR    ERROR
+** DOT   .a   [" a"]  ["not"]  [a]
+** TABLE  a   [" a"}  ["not"]  [a]
 */
 void MakeIndex(Function* F, StringBuffer* str, char* rstr, IndexType type) {
 	int len, dot, i;
@@ -1548,6 +1418,7 @@ void MakeIndex(Function* F, StringBuffer* str, char* rstr, IndexType type) {
 		}
 	}
 
+	free(rawrstr);
 	StringBuffer_delete(rawrstrbuff);
 }
 
@@ -1891,29 +1762,28 @@ char* ProcessCode(const Proto* f, int indent, int func_checking) {
 					// TFORLOOP jump back
 					LoopItem* item = NewLoopItem(TFORLOOP, dest-1, dest, dest, pc, real_end);
 					AddToLoopTree(F, item);
-				} else if (isTestOpCode(pc_1)) {
-					// REPEAT jump back
-					/***
-					* if the out loop(loop_ptr) is while and body=loop_ptr.start,
-					* jump back may be 'until' or 'if', they are the same,
-					* but 'if' is more clear, so we skip making a loop to choose 'if'.
-					* see the lua code:
-					local a,b,c,f
-
-					while 1 do
-						repeat
-							f(b)
-						until c
-						f(a)
-					end
-
-					while 1 do
-						f(b)
-						if c then
-							f(a)
-						end
-					end
-					***/
+				} else if (isTestOpCode(pc_1)) { //REPEAT jump back
+					/* 
+					** if the out loop(loop_ptr) is while and body=loop_ptr.start,
+					** jump back may be 'until' or 'if', they are the same,
+					** but 'if' is more clear, so we skip making a loop to choose 'if'.
+					** see the lua code:
+					** local a,b,c,f
+					** 
+					** while 1 do
+					**	repeat
+					**		f(b)
+					**	until c
+					**	f(a)
+					** end
+					** 
+					** while 1 do
+					**	f(b)
+					** 	if c then
+					** 		f(a)
+					**	end
+					** end
+					*/
 					if (!((F->loop_ptr->type == WHILE ) && (dest == F->loop_ptr->start))) {
 						LoopItem* item = NewLoopItem(REPEAT, dest, dest, dest, pc, real_end);
 						AddToLoopTree(F, item);
@@ -2005,22 +1875,17 @@ char* ProcessCode(const Proto* f, int indent, int func_checking) {
 
 		while (RemoveFromSet(F->do_closes, pc)) {
 			AstStatement* block = F->currStmt;
-			if ( block->type == BLOCK_STMT) {
+			if (block->type == BLOCK_STMT) {
 				F->currStmt = block->parent;
 			} else {
 				SET_ERROR(F, "unexpected 'end' of 'do'");
 			}
 		}
 
-		while (GetEndifAddr(F, pc + 1)) {
-			AstStatement* block = F->currStmt;
-			F->elseWritten = 0;
-			F->elsePending = 0;
-			if (block->type == IF_THEN_STMT) {
-				F->currStmt = block->parent->parent;
-			} else {
-				SET_ERROR(F, "unexpected 'end' of 'if'");
-			}
+		while ((F->currStmt->type == IF_THEN_STMT || F->currStmt->type == IF_ELSE_STMT)
+			&& ElseStart(F->currStmt->parent) == GetJmpAddr(F, pc)) {
+			AstStatement* ifstmt = F->currStmt->parent;
+			F->currStmt = ifstmt->parent;
 		}
 
 		if (F->jmpdests.head && cast(AstStatement*, F->jmpdests.head)->line == pc) {
@@ -2053,23 +1918,23 @@ char* ProcessCode(const Proto* f, int indent, int func_checking) {
 				RawAddAstStatement(F, cast(AstStatement*, loopstmt));
 				F->currStmt = loopstmt;
 			} else if (walk->type == WHILE) { 
-				/***
-				* try to process all while as " while 1 do if "
-				* see the lua code:
-				local f, a, b, c
-
-				while test do
-					whilebody
-				end
-
-				while 1 do
-					if test then
-						whilebody
-					else
-						break
-					end
-				end
-				***/
+				/*
+				** try to process all while as " while 1 do if "
+				** see the lua code:
+				** local f, a, b, c
+				** 
+				** while test do
+				** 	whilebody
+				** end
+				** 
+				** while 1 do
+				** 	if test then
+				** 		whilebody
+				** 	else
+				** 		break
+				** 	end
+				** end
+				*/
 				AstStatement* loopstmt = MakeLoopStatement(WHILE_STMT, strdup("1"));
 				RawAddAstStatement(F, cast(AstStatement*, loopstmt));
 				F->currStmt = loopstmt;
@@ -2080,910 +1945,825 @@ char* ProcessCode(const Proto* f, int indent, int func_checking) {
 		StringBuffer_prune(str);
 
 		switch (o) {
-	  case OP_MOVE:
-		  /* Upvalue handling added to OP_CLOSURE */
-		  {
-			  const char* bstr = NULL;
-			  if (a == b)
-				  break;
-			  if (CALL(b) < 2)
-				  bstr = GetR(F, b);
-			  else
-				  UnsetPending(F, b);
-			  if (error)
-				  goto errorHandler;
-			  /*
-			  * Copy from one register to another
-			  */
-			  TRY(AssignReg(F, a, bstr, PRIORITY(b), 1));
-			  break;
-		  }
-	  case OP_LOADK:
-		  {
-			  /*
-			  * Constant. Store it in register.
-			  */
-			  char *ctt = DecompileConstant(f, bc);
-			  TRY(AssignReg(F, a, ctt, 0, 1));
-			  free(ctt);
-			  break;
-		  }
-	  case OP_LOADBOOL:
-		  {
-			  if ((F->bools.size == 0) || (c==0)) {
-				  /*
-				  * assign boolean constant
-				  */
-				  if (PENDING(a)) {
-					  // some boolean constructs overwrite pending regs :(
-					  TRY(UnsetPending(F, a));
-				  }
-				  TRY(AssignReg(F, a, b ? "true" : "false", 0, 1));
-			  } else {
-				  /*
-				  * assign boolean value
-				  */
-				  char *test = NULL;
-				  TRY(test = OutputBoolean(F, NULL, 1));
-				  StringBuffer_printf(str, "%s", test);
-				  if (test) free(test);
-				  TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
-			  }
-			  if (c)
-				  ignoreNext = 1;
-			  break;
-		  }
-	  case OP_LOADNIL:
-		  {
-			  int i;
-			  /*
-			  * Read nil into register.
-			  */
-			  for(i = a; i <= b; i++) {
-				  TRY(AssignReg(F, i, "nil", 0, 1));
-			  }
-			  break;
-		  }
-	  case OP_VARARG: // Lua5.1 specific.
-		  {
-			  int i;
-			  /*
-			  * Read ... into register.
-			  */
-			  if (b==0) {
-				  TRY(AssignReg(F, a, "...", 0, 1));
-				  TRY(AssignReg(F, a+1, ".end", 0, 1));
-			  } else {
-				  for(i = 0; i < b-1; i++) {
-					  TRY(AssignReg(F, a+i, "...", 0, 1));
-				  }
-			  }
-			  break;
-		  }
-	  case OP_GETUPVAL:
-		  {
-			  TRY(AssignReg(F, a, UPVALUE(b), 0, 1));
-			  break;
-		  }
-	  case OP_GETGLOBAL:
-		  {
-			  /*
-			  * Read global into register.
-			  */
-			  TRY(AssignReg(F, a, GLOBAL(bc), 0, 1));
-			  break;
-		  }
-	  case OP_GETTABLE:
-		  {
-			  /*
-			  * Read table entry into register.
-			  */
-			  const char *bstr;
-			  char* cstr;
-			  TRY(cstr = RegisterOrConstant(F, c));
-			  TRY(bstr = GetR(F, b));
-			  if (bstr[0] == '{') {
-				  StringBuffer_printf(str, "(%s)", bstr);
-			  } else {
-				  StringBuffer_set(str, bstr);
-			  }
-			  MakeIndex(F, str, cstr, DOT);
-			  TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
-			  free(cstr);
-			  break;
-		  }
-	  case OP_SETGLOBAL:
-		  {
-			  /*
-			  * Global Assignment statement.
-			  */
-			  const char *var = GLOBAL(bc);
-			  const char *astr;
-			  TRY(astr = GetR(F, a));
-			  TRY(AssignGlobalOrUpvalue(F, var, astr));
-			  break;
-		  }
-	  case OP_SETUPVAL:
-		  {
-			  /*
-			  * Global Assignment statement.
-			  */
-			  const char *var = UPVALUE(b);// UP(b) is correct
-			  const char *astr;
-			  TRY(astr = GetR(F, a));
-			  TRY(AssignGlobalOrUpvalue(F, var, astr));
-			  break;
-		  }
-	  case OP_SETTABLE:
-		  {
-			  char *bstr, *cstr;
-			  int settable;
-			  TRY(bstr = RegisterOrConstant(F, b));
-			  TRY(cstr = RegisterOrConstant(F, c));
-			  /*
-			  * first try to add into a table
-			  */
-			  TRY(settable = SetTable(F, a, bstr, cstr));
-			  if (!settable) {
-				  /*
-				  * if failed, just output an assignment
-				  */
-				  StringBuffer_set(str, REGISTER(a));
-				  MakeIndex(F, str, bstr, DOT);
-				  TRY(AssignGlobalOrUpvalue(F, StringBuffer_getRef(str), cstr));
-			  }
-			  free(bstr);
-			  free(cstr);
-			  break;
-		  }
-	  case OP_NEWTABLE:
-		  {
-			  TRY(StartTable(F, a, b, c, pc));
-			  break;
-		  }
-	  case OP_SELF:
-		  {
-			  /*
-			  * Read table entry into register.
-			  */
-			  const char *bstr;
-			  char *cstr;
-			  TRY(cstr = RegisterOrConstant(F, c));
-			  TRY(bstr = GetR(F, b));
-
-			  TRY(AssignReg(F, a+1, bstr, PRIORITY(b), 0));
-
-			  StringBuffer_set(str, bstr);
-			  MakeIndex(F, str, cstr, SELF);
-			  TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
-			  free(cstr);
-			  break;
-		  }
-	  case OP_ADD:
-	  case OP_SUB:
-	  case OP_MUL:
-	  case OP_DIV:
-	  case OP_POW:
-	  case OP_MOD:
-		  {
-			  char *bstr, *cstr;
-			  const char *oper = operators[o];
-			  int prio = priorities[o];
-			  int bprio = PRIORITY(b);
-			  int cprio = PRIORITY(c);
-			  TRY(bstr = RegisterOrConstant(F, b));
-			  TRY(cstr = RegisterOrConstant(F, c));
-			  // FIXME: might need to change from <= to < here
-			  if ((prio != 1 && bprio <= prio) || (prio == 1 && bstr[0] != '-')) {
-				  StringBuffer_add(str, bstr);
-			  } else {
-				  StringBuffer_addPrintf(str, "(%s)", bstr);
-			  }
-			  StringBuffer_addPrintf(str, " %s ", oper);
-			  // FIXME: being conservative in the use of parentheses
-			  if (cprio < prio) {
-				  StringBuffer_add(str, cstr);
-			  } else {
-				  StringBuffer_addPrintf(str, "(%s)", cstr);
-			  }
-			  TRY(AssignReg(F, a, StringBuffer_getRef(str), prio, 0));
-			  free(bstr);
-			  free(cstr);
-			  break;
-		  }
-	  case OP_UNM:
-	  case OP_NOT:
-	  case OP_LEN:
-		  {
-			  const char *bstr;
-			  int prio = priorities[o];
-			  int bprio = PRIORITY(b);
-			  TRY(bstr = GetR(F, b));
-			  StringBuffer_add(str, operators[o]);
-			  if (bprio <= prio) {
-				  StringBuffer_add(str, bstr);
-			  } else {
-				  StringBuffer_addPrintf(str, "(%s)", bstr);
-			  }
-			  TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
-			  break;
-		  }
-	  case OP_CONCAT:
-		  {
-			  int i;
-			  for (i = b; i <= c; i++) {
-				  const char *istr;
-				  TRY(istr = GetR(F, i));
-				  if (PRIORITY(i) > priorities[o]) {
-					  StringBuffer_addPrintf(str, "(%s)", istr);
-				  } else {
-					  StringBuffer_add(str, istr);
-				  }
-				  if (i < c)
-					  StringBuffer_add(str, " .. ");
-			  }
-			  TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
-			  break;
-		  }
-	  case OP_JMP:
-		  {
-			  int dest = sbc + pc + 2;
-			  Instruction idest = code[dest - 1];
-			  IntListItem* foundInt = (IntListItem*)RemoveFromList(&(F->breaks), FindFromListTail(&(F->breaks), (ListItemCmpFn)MatchIntListItem, &pc));
-			  if (foundInt != NULL){ // break
-				  free(foundInt);
-				  StringBuffer_printf(str, "do break end");
-				  TRY(AddStatement(F, str));
-			  }else if (F->loop_ptr->end == pc){ // until jmp has been processed, tforloop has ignored the jmp, forloop does not have a jmp
-				  if (GetEndifAddr(F, pc + 2)) {
-					  /*** before we have had
-					  while 1 do
-						if test then
-							while_body
-					  ***/
-
-					  /*** method 1
-					  while 1 do
-						if test then
-							while_body
-						else
-							break
-						end
-					  end
-
-					  F->indent--;
-					  StringBuffer_printf(str, "else");
-					  TRY(AddStatement(F, str));
-					  F->indent++;
-					  StringBuffer_printf(str, "break");
-					  TRY(AddStatement(F, str));
-					  F->indent--;
-					  StringBuffer_printf(str, "end");
-					  TRY(AddStatement(F, str));
-					  ***/
-
-					  // method 2 ChangeIfToWhile(F)
-					  AstStatement* currStmt = F->currStmt;
-					  if (currStmt->type == IF_THEN_STMT) {
-						  AstStatement* ifStmt = currStmt->parent;
-						  AstStatement* parentStmt = ifStmt->parent;
-						  if (parentStmt->type == WHILE_STMT && parentStmt->sub->size == 1) {
-							  // if is the first statment of while body
-							  AstStatement* whileStmt = parentStmt;
-							  char* whileTest = whileStmt->code;
-							  if (strcmp(whileTest, "1") == 0) {
-								  // ifthen to while
-								  RemoveFromList(ifStmt->sub, (ListItem*)currStmt);
-								  currStmt->type = WHILE_STMT;
-								  currStmt->code = ifStmt->code;
-								  currStmt->line = ifStmt->line;
-								  currStmt->parent = whileStmt->parent;
-
-								  RemoveFromList(whileStmt->parent->sub, (ListItem*)whileStmt);
-
-								  /**
-								  currStmt->parent = whileStmt->parent;
-								  currStmt->super.prev = whileStmt->super.prev;
-								  if (currStmt->super.prev) {
-									  currStmt->super.prev->next = (ListItem*)currStmt;
-								  } else {
-									  currStmt->parent->sub->head = (ListItem*)currStmt;
-								  }
-								  currStmt->super.next = whileStmt->super.next;
-								  if (currStmt->super.next) {
-									  currStmt->super.next->prev = (ListItem*)currStmt;
-								  } else {
-									  currStmt->parent->sub->tail = (ListItem*)currStmt;
-								  }
-								  **/
-
-								  AddToStatement(currStmt->parent, currStmt);
-
-								  ifStmt->code = NULL;
-
-								  DeleteAstStatement(whileStmt);
-							  }
-						  }
-					  }
-				  }
-				  if (F->currStmt->type == WHILE_STMT) {
-					  F->currStmt = F->currStmt->parent;
-				  } else {
-					  SET_ERROR(F, "unexpected 'end' of 'while'");
-				  }
-			  }else if (GetEndifAddr(F, pc + 2)) { // jmp before 'else'
-				  if (F->elseWritten) {
-					  if (F->currStmt->type == IF_THEN_STMT || F->currStmt->type == IF_ELSE_STMT) {
-						  F->currStmt = F->currStmt->parent->parent;
-					  } else {
-						  SET_ERROR(F, "unexpected 'end' of 'if'");
-					  }
-				  }
-				  //TODO check should we output 'else' here ?
-				  F->indent--;
-				  F->elsePending = dest;
-				  F->elseStart = pc + 2;
-
-				if (F->currStmt->type == IF_THEN_STMT) {
-					AstStatement* lastif = F->currStmt->parent;
-					F->currStmt = cast(AstStatement*, lastif->sub->tail);
-					/* this test circumvents jump-to-jump optimization at
-					the end of if blocks */
-					if (!PeekEndifAddr(F, F->pc + 3)) {
-						StoreEndifAddr(F, F->elsePending);
+		case OP_MOVE:
+			/* Upvalue handling added to OP_CLOSURE */
+			{
+				const char* bstr = NULL;
+				if (a == b)
+					break;
+				if (CALL(b) < 2)
+					bstr = GetR(F, b);
+				else
+					UnsetPending(F, b);
+				if (error)
+					goto errorHandler;
+				/*
+				* Copy from one register to another
+				*/
+				TRY(AssignReg(F, a, bstr, PRIORITY(b), 1));
+				break;
+			}
+		case OP_LOADK:
+			{
+				/*
+				* Constant. Store it in register.
+				*/
+				char *ctt = DecompileConstant(f, bc);
+				TRY(AssignReg(F, a, ctt, 0, 1));
+				free(ctt);
+				break;
+			}
+		case OP_LOADBOOL:
+			{
+				if ((F->bools.size == 0) || (c==0)) {
+					/*
+					* assign boolean constant
+					*/
+					if (PENDING(a)) {
+						// some boolean constructs overwrite pending regs :(
+						TRY(UnsetPending(F, a));
 					}
-					F->elseWritten = 1;
+					TRY(AssignReg(F, a, b ? "true" : "false", 0, 1));
 				} else {
-					SET_ERROR(F,"unexpected 'else' of 'if'");
+					/*
+					* assign boolean value
+					*/
+					char *test = NULL;
+					TRY(test = OutputBoolean(F, NULL, 1));
+					StringBuffer_printf(str, "%s", test);
+					if (test) free(test);
+					TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
 				}
-				F->elsePending = 0;
-				F->elseStart = 0;
-			  }else if (GET_OPCODE(idest) == OP_TFORLOOP) { // jmp of generic for
-				  /*
-				  * generic 'for'
-				  */
-				  int i;
-				  //int step;
-				  const char *generator, *control, *state;
-				  //char *variables[20];
-				  char* vname[40];
-				  AstStatement* forstmt = NULL;
-				  //int stepLen;
+				if (c)
+					ignoreNext = 1;
+				break;
+			}
+		case OP_LOADNIL:
+			{
+				int i;
+				/*
+				* Read nil into register.
+				*/
+				for(i = a; i <= b; i++) {
+					TRY(AssignReg(F, i, "nil", 0, 1));
+				}
+				break;
+			}
+		case OP_VARARG: // Lua5.1 specific.
+			{
+				int i;
+				/*
+				* Read ... into register.
+				*/
+				if (b==0) {
+					TRY(AssignReg(F, a, "...", 0, 1));
+					TRY(AssignReg(F, a+1, ".end", 0, 1));
+				} else {
+					for(i = 0; i < b-1; i++) {
+						TRY(AssignReg(F, a+i, "...", 0, 1));
+					}
+				}
+				break;
+			}
+		case OP_GETUPVAL:
+			{
+				TRY(AssignReg(F, a, UPVALUE(b), 0, 1));
+				break;
+			}
+		case OP_GETGLOBAL:
+			{
+				/*
+				* Read global into register.
+				*/
+				TRY(AssignReg(F, a, GLOBAL(bc), 0, 1));
+				break;
+			}
+		case OP_GETTABLE:
+			{
+				/*
+				* Read table entry into register.
+				*/
+				const char *bstr;
+				char* cstr;
+				TRY(cstr = RegisterOrConstant(F, c));
+				TRY(bstr = GetR(F, b));
+				if (bstr[0] == '{') {
+					StringBuffer_printf(str, "(%s)", bstr);
+				} else {
+					StringBuffer_set(str, bstr);
+				}
+				MakeIndex(F, str, cstr, DOT);
+				TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
+				free(cstr);
+				break;
+			}
+		case OP_SETGLOBAL:
+			{
+				/*
+				* Global Assignment statement.
+				*/
+				const char *var = GLOBAL(bc);
+				const char *astr;
+				TRY(astr = GetR(F, a));
+				TRY(AssignGlobalOrUpvalue(F, var, astr));
+				break;
+			}
+		case OP_SETUPVAL:
+			{
+				/*
+				* Global Assignment statement.
+				*/
+				const char *var = UPVALUE(b);// UP(b) is correct
+				const char *astr;
+				TRY(astr = GetR(F, a));
+				TRY(AssignGlobalOrUpvalue(F, var, astr));
+				break;
+			}
+		case OP_SETTABLE:
+			{
+				char *bstr, *cstr;
+				int settable;
+				TRY(bstr = RegisterOrConstant(F, b));
+				TRY(cstr = RegisterOrConstant(F, c));
+				/*
+				* first try to add into a table
+				*/
+				TRY(settable = SetTable(F, a, bstr, cstr));
+				if (!settable) {
+					/*
+					* if failed, just output an assignment
+					*/
+					StringBuffer_set(str, REGISTER(a));
+					MakeIndex(F, str, bstr, DOT);
+					TRY(AssignGlobalOrUpvalue(F, StringBuffer_getRef(str), cstr));
+				}
+				free(bstr);
+				free(cstr);
+				break;
+			}
+		case OP_NEWTABLE:
+			{
+				TRY(StartTable(F, a, b, c, pc));
+				break;
+			}
+		case OP_SELF:
+			{
+				/*
+				* Read table entry into register.
+				*/
+				const char *bstr;
+				char *cstr;
+				TRY(cstr = RegisterOrConstant(F, c));
+				TRY(bstr = GetR(F, b));
 
-				  a = GETARG_A(idest);
-				  c = GETARG_C(idest);
+				TRY(AssignReg(F, a+1, bstr, PRIORITY(b), 0));
 
-				  F->intspos++;
-				  generator = GetR(F, a);
-				  control = GetR(F, a + 2);
-				  state = GetR(F, a + 1);
-				  for (i=1; i<=c; i++) {
-					  if (!IS_VARIABLE(a+2+i)) {
-						  int i2;
-						  int loopvars = 0;
-						  vname[i-1] = NULL;
-						  for (i2 = 0; i2 < f->sizelocvars; i2++) {
-							  if (f->locvars[i2].startpc == pc + 1) {
-								  loopvars++;
-								  //search for the loop variable. Set it's endpc one step further so it will be the same for all loop variables
-								  if (GET_OPCODE(F->f->code[f->locvars[i2].endpc-2]) == OP_TFORLOOP) {
-									  f->locvars[i2].endpc -= 2;
-								  }
-								  if (GET_OPCODE(F->f->code[f->locvars[i2].endpc-1]) == OP_TFORLOOP) {
-									  f->locvars[i2].endpc -= 1;
-								  }
-								  if (loopvars==3+i) {
-									  vname[i-1] = LOCAL(i2);
-									  break;
-								  }
-							  }
-						  }
-						  if (vname[i-1] == NULL) {
-							  char tmp[5];
-							  sprintf(tmp,"i_%d",i);
-							  TRY(DeclareVariable(F, tmp, a+2+i));
-							  vname[i-1] = F->R[a+2+i];
-						  }
-					  } else {
-						  vname[i-1] = F->R[a+2+i];
-					  }
-					  F->Rinternal[a+2+i] = 1;
-				  }
+				StringBuffer_set(str, bstr);
+				MakeIndex(F, str, cstr, SELF);
+				TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
+				free(cstr);
+				break;
+			}
+		case OP_ADD:
+		case OP_SUB:
+		case OP_MUL:
+		case OP_DIV:
+		case OP_POW:
+		case OP_MOD:
+			{
+				char *bstr, *cstr;
+				const char *oper = operators[o];
+				int prio = priorities[o];
+				int bprio = PRIORITY(b);
+				int cprio = PRIORITY(c);
+				TRY(bstr = RegisterOrConstant(F, b));
+				TRY(cstr = RegisterOrConstant(F, c));
+				// FIXME: might need to change from <= to < here
+				if ((prio != 1 && bprio <= prio) || (prio == 1 && bstr[0] != '-')) {
+					StringBuffer_add(str, bstr);
+				} else {
+					StringBuffer_addPrintf(str, "(%s)", bstr);
+				}
+				StringBuffer_addPrintf(str, " %s ", oper);
+				// FIXME: being conservative in the use of parentheses
+				if (cprio < prio) {
+					StringBuffer_add(str, cstr);
+				} else {
+					StringBuffer_addPrintf(str, "(%s)", cstr);
+				}
+				TRY(AssignReg(F, a, StringBuffer_getRef(str), prio, 0));
+				free(bstr);
+				free(cstr);
+				break;
+			}
+		case OP_UNM:
+		case OP_NOT:
+		case OP_LEN:
+			{
+				const char *bstr;
+				int prio = priorities[o];
+				int bprio = PRIORITY(b);
+				TRY(bstr = GetR(F, b));
+				StringBuffer_add(str, operators[o]);
+				if (bprio <= prio) {
+					StringBuffer_add(str, bstr);
+				} else {
+					StringBuffer_addPrintf(str, "(%s)", bstr);
+				}
+				TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
+				break;
+			}
+		case OP_CONCAT:
+			{
+				int i;
+				for (i = b; i <= c; i++) {
+					const char *istr;
+					TRY(istr = GetR(F, i));
+					if (PRIORITY(i) > priorities[o]) {
+						StringBuffer_addPrintf(str, "(%s)", istr);
+					} else {
+						StringBuffer_add(str, istr);
+					}
+					if (i < c)
+						StringBuffer_add(str, " .. ");
+				}
+				TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
+				break;
+			}
+		case OP_JMP:
+			{
+				int dest = sbc + pc + 2;
+				Instruction idest = code[dest - 1];
+				IntListItem* foundInt = (IntListItem*)RemoveFromList(&(F->breaks), FindFromListTail(&(F->breaks), (ListItemCmpFn)MatchIntListItem, &pc));
+				if (foundInt != NULL){ // break
+					free(foundInt);
+					StringBuffer_printf(str, "do break end");
+					TRY(AddStatement(F, str));
+				}else if (F->loop_ptr->end == pc){ // until jmp has been processed, tforloop has ignored the jmp, forloop does not have a jmp
+					if (F->currStmt->type == IF_THEN_STMT && ElseStart(F->currStmt->parent) == GetJmpAddr(F, pc + 1)) {
+						// Change 'while 1 do if' to 'while'
+						AstStatement* currStmt = F->currStmt;
+						AstStatement* ifStmt = currStmt->parent;
+						AstStatement* parentStmt = ifStmt->parent;
+						if (parentStmt->type == WHILE_STMT && parentStmt->sub->size == 1) {
+							// if is the first statment of while body
+							AstStatement* whileStmt = parentStmt;
+							char* whileTest = whileStmt->code;
+							if (strcmp(whileTest, "1") == 0) {
+								// ifthen to while
+								RemoveFromList(ifStmt->sub, (ListItem*)currStmt);
+								currStmt->type = WHILE_STMT;
+								currStmt->code = ifStmt->code;
+								currStmt->line = ifStmt->line;
+								currStmt->parent = whileStmt->parent;
+								RemoveFromList(whileStmt->parent->sub, (ListItem*)whileStmt);
+								AddToStatement(currStmt->parent, currStmt);
+								ifStmt->code = NULL;
+								DeleteAstStatement(whileStmt);
+							}
+						}
+					}
+					if (F->currStmt->type == WHILE_STMT) {
+						F->currStmt = F->currStmt->parent;
+					} else {
+						SET_ERROR(F, "unexpected 'end' of 'while'");
+					}
+				}else if (F->currStmt->type == IF_THEN_STMT && ElseStart(F->currStmt->parent) == GetJmpAddr(F, pc + 1)) { // jmp before 'else'
+					AstStatement* ifstmt = F->currStmt->parent;
+					F->currStmt = ElseStmt(ifstmt);
+					ElseStart(ifstmt) = GetJmpAddr(F, dest);
+				}else if (GET_OPCODE(idest) == OP_TFORLOOP) { // jmp of generic for
+					/*
+					* generic 'for'
+					*/
+					int i;
+					//int step;
+					const char *generator, *control, *state;
+					//char *variables[20];
+					char* vname[40];
+					AstStatement* forstmt = NULL;
+					//int stepLen;
 
-				  DeclarePendingLocals(F);
+					a = GETARG_A(idest);
+					c = GETARG_C(idest);
 
-				  StringBuffer_printf(str,"%s",vname[0]);
-				  for (i=2; i<=c; i++) {
-					  StringBuffer_addPrintf(str, ",%s",vname[i-1]);
-				  }
-				  StringBuffer_addPrintf(str," in ");
-				  StringBuffer_addPrintf(str,"%s",generator);
+					F->intspos++;
+					generator = GetR(F, a);
+					control = GetR(F, a + 2);
+					state = GetR(F, a + 1);
+					for (i=1; i<=c; i++) {
+						if (!IS_VARIABLE(a+2+i)) {
+							int i2;
+							int loopvars = 0;
+							vname[i-1] = NULL;
+							for (i2 = 0; i2 < f->sizelocvars; i2++) {
+								if (f->locvars[i2].startpc == pc + 1) {
+									loopvars++;
+									//search for the loop variable. Set it's endpc one step further so it will be the same for all loop variables
+									if (GET_OPCODE(F->f->code[f->locvars[i2].endpc-2]) == OP_TFORLOOP) {
+										f->locvars[i2].endpc -= 2;
+									}
+									if (GET_OPCODE(F->f->code[f->locvars[i2].endpc-1]) == OP_TFORLOOP) {
+										f->locvars[i2].endpc -= 1;
+									}
+									if (loopvars==3+i) {
+										vname[i-1] = LOCAL(i2);
+										break;
+									}
+								}
+							}
+							if (vname[i-1] == NULL) {
+								char tmp[5];
+								sprintf(tmp,"i_%d",i);
+								TRY(DeclareVariable(F, tmp, a+2+i));
+								vname[i-1] = F->R[a+2+i];
+							}
+						} else {
+							vname[i-1] = F->R[a+2+i];
+						}
+						F->Rinternal[a+2+i] = 1;
+					}
 
-				  F->Rinternal[a] = 1;
-				  F->Rinternal[a + 1] = 1;
-				  F->Rinternal[a + 2] = 1;
+					DeclarePendingLocals(F);
 
-				  F->intbegin[F->intspos] = a;
-				  F->intend[F->intspos] = a+2+c;
-				  forstmt = MakeLoopStatement(TFORLOOP_STMT, StringBuffer_getBuffer(str));
-				  AddAstStatement(F, forstmt);
-				  F->currStmt = forstmt;
-				  break;
-			  } else if (sbc == 2 && GET_OPCODE(code[pc+2]) == OP_LOADBOOL) {
-				  int boola = GETARG_A(code[pc+1]);
-				  char* test = NULL;
-				  /* skip */
-				  char* ra = luadec_strdup(REGISTER(boola));
-				  char* rb = luadec_strdup(ra);
-				  AddToList(&(F->bools), (ListItem*)MakeBoolOp(ra, rb, OP_TESTSET, c, pc+3, dest));
-				  F->testpending = a+1;
-				  F->testjump = dest;
-				  TRY(test = OutputBoolean(F, NULL, 1));
-				  StringBuffer_printf(str, "%s", test);
-				  if (test) free(test);
-				  TRY(UnsetPending(F, boola));
-				  TRY(AssignReg(F, boola, StringBuffer_getRef(str), 0, 0));
-				  ignoreNext = 2;
-			  } else if (GET_OPCODE(idest) == OP_LOADBOOL) {
-				  /*
-				  * constant boolean value
-				  */
-				  pc = dest - 2;
-			  } else if (sbc == 0) {
-				  /* dummy jump -- ignore it */
-				  break;
-			  } else {
-				  int nextpc = pc+1;
-				  int nextsbc = sbc-1;
-				  for (;;) {
-					  Instruction nextins = code[nextpc];
-					  if (GET_OPCODE(nextins) == OP_JMP && GETARG_sBx(nextins) == nextsbc) {
-						  nextpc++;
-						  nextsbc--;
-					  } else
-						  break;
-					  if (nextsbc == -1) {
-						  break;
-					  }
-				  }
-				  if (nextsbc == -1) {
-					  pc = nextpc-1;
-					  break;
-				  }
-				  if (F->indent > baseIndent) {
-					  StringBuffer_printf(str, "do return end");
-				  } else {
-					  pc = dest-2;
-				  }
-				  TRY(AddStatement(F, str));
-			  }
-			  break;
-		  }
-	  case OP_EQ:
-	  case OP_LT:
-	  case OP_LE:
-		  {
-			  if (IS_CONSTANT(b)) {
-				  int swap = b;
-				  b = c;
-				  c = swap;
-				  a = !a;
-				  if (o == OP_LT) o = OP_LE;
-				  else if (o == OP_LE) o = OP_LT;
-			  }
-			  AddToList(&(F->bools), (ListItem*)MakeBoolOp(RegisterOrConstant(F, b), RegisterOrConstant(F, c), o, a, pc+1, -1));
-			  goto LOGIC_NEXT_JMP;
-			  break;
-		  }
-	  case OP_TESTSET: // Lua5.1 specific TODO: correct it
-	  case OP_TEST:
-		  {
-			  int cmpa, cmpb, cmpc;
-			  const char *ra, *rb, *rc;
+					StringBuffer_printf(str,"%s",vname[0]);
+					for (i=2; i<=c; i++) {
+						StringBuffer_addPrintf(str, ",%s",vname[i-1]);
+					}
+					StringBuffer_addPrintf(str," in ");
+					StringBuffer_addPrintf(str,"%s",generator);
 
-			  if (o==OP_TESTSET) {
-				  cmpa = a;
-				  cmpb = b;
-				  cmpc = c;
-			  } else {
-				  cmpa = a;
-				  cmpb = a;
-				  cmpc = c;
-				  // StringBuffer_add(str, "  -- Lua5.1 code: CHECK");
-				  // TRY(AddStatement(F, str));
-			  }
+					F->Rinternal[a] = 1;
+					F->Rinternal[a + 1] = 1;
+					F->Rinternal[a + 2] = 1;
 
-			  if (!IS_VARIABLE(cmpa)) {
-				  ra = REGISTER(cmpa);
-				  TRY(rb = GetR(F, cmpb));
-				  PENDING(cmpa) = 0;
-			  } else {
-				  TRY(ra = GetR(F, cmpa));
-				  if (cmpa != cmpb) {
-					  TRY(rb = GetR(F, cmpb));
-				  } else {
-					  rb = ra;
-				  }
-			  }
-			  AddToList(&(F->bools), (ListItem*)MakeBoolOp(luadec_strdup(ra), luadec_strdup(rb), o, cmpc, pc+1, -1));
-			  // Within an IF, a and b are the same, avoiding side-effects
-			  if (cmpa != cmpb || !IS_VARIABLE(cmpa)) {
-				  F->testpending = cmpa+1;
-			  }
-			  goto LOGIC_NEXT_JMP;
-			  break;
-		  }
+					F->intbegin[F->intspos] = a;
+					F->intend[F->intspos] = a+2+c;
+					forstmt = MakeLoopStatement(TFORLOOP_STMT, StringBuffer_getBuffer(str));
+					AddAstStatement(F, forstmt);
+					F->currStmt = forstmt;
+					break;
+				} else if (sbc == 2 && GET_OPCODE(code[pc+2]) == OP_LOADBOOL) {
+					int boola = GETARG_A(code[pc+1]);
+					char* test = NULL;
+					/* skip */
+					char* ra = luadec_strdup(REGISTER(boola));
+					char* rb = luadec_strdup(ra);
+					AddToList(&(F->bools), (ListItem*)MakeBoolOp(ra, rb, OP_TESTSET, c, pc+3, dest));
+					F->testpending = a+1;
+					F->testjump = dest;
+					TRY(test = OutputBoolean(F, NULL, 1));
+					StringBuffer_printf(str, "%s", test);
+					if (test) free(test);
+					TRY(UnsetPending(F, boola));
+					TRY(AssignReg(F, boola, StringBuffer_getRef(str), 0, 0));
+					ignoreNext = 2;
+				} else if (GET_OPCODE(idest) == OP_LOADBOOL) {
+					/*
+					* constant boolean value
+					*/
+					pc = dest - 2;
+				} else if (sbc == 0) {
+					/* dummy jump -- ignore it */
+					break;
+				} else {
+					int nextpc = pc+1;
+					int nextsbc = sbc-1;
+					for (;;) {
+						Instruction nextins = code[nextpc];
+						if (GET_OPCODE(nextins) == OP_JMP && GETARG_sBx(nextins) == nextsbc) {
+							nextpc++;
+							nextsbc--;
+						} else
+							break;
+						if (nextsbc == -1) {
+							break;
+						}
+					}
+					if (nextsbc == -1) {
+						pc = nextpc-1;
+						break;
+					}
+					if (F->indent > baseIndent) {
+						StringBuffer_printf(str, "do return end");
+					} else {
+						pc = dest-2;
+					}
+					TRY(AddStatement(F, str));
+				}
+				break;
+			}
+		case OP_EQ:
+		case OP_LT:
+		case OP_LE:
+			{
+				if (IS_CONSTANT(b)) {
+					int swap = b;
+					b = c;
+					c = swap;
+					a = !a;
+					if (o == OP_LT) o = OP_LE;
+					else if (o == OP_LE) o = OP_LT;
+				}
+				AddToList(&(F->bools), (ListItem*)MakeBoolOp(RegisterOrConstant(F, b), RegisterOrConstant(F, c), o, a, pc+1, -1));
+				goto LOGIC_NEXT_JMP;
+				break;
+			}
+		case OP_TESTSET: // Lua5.1 specific TODO: correct it
+		case OP_TEST:
+			{
+				int cmpa, cmpb, cmpc;
+				const char *ra, *rb, *rc;
+
+				if (o==OP_TESTSET) {
+					cmpa = a;
+					cmpb = b;
+					cmpc = c;
+				} else {
+					cmpa = a;
+					cmpb = a;
+					cmpc = c;
+					// StringBuffer_add(str, "  -- Lua5.1 code: CHECK");
+					// TRY(AddStatement(F, str));
+				}
+
+				if (!IS_VARIABLE(cmpa)) {
+					ra = REGISTER(cmpa);
+					TRY(rb = GetR(F, cmpb));
+					PENDING(cmpa) = 0;
+				} else {
+					TRY(ra = GetR(F, cmpa));
+					if (cmpa != cmpb) {
+						TRY(rb = GetR(F, cmpb));
+					} else {
+						rb = ra;
+					}
+				}
+				AddToList(&(F->bools), (ListItem*)MakeBoolOp(luadec_strdup(ra), luadec_strdup(rb), o, cmpc, pc+1, -1));
+				// Within an IF, a and b are the same, avoiding side-effects
+				if (cmpa != cmpb || !IS_VARIABLE(cmpa)) {
+					F->testpending = cmpa+1;
+				}
+				goto LOGIC_NEXT_JMP;
+				break;
+			}
 LOGIC_NEXT_JMP:
-		  {
-			  int dest;
-			  BoolOp* lastBool;
-			  pc++;
-			  F->pc = pc;
-			  i = code[pc];
-			  o = GET_OPCODE(i);
-			  if (o != OP_JMP) {
-				  assert(0);
-			  }
-			  sbc = GETARG_sBx(i);
-			  dest = sbc + pc + 2;
-			  lastBool = cast(BoolOp*, LastItem(&(F->bools)));
-			  lastBool->dest = dest;
-			  if (F->testpending) {
-				  F->testjump = dest;
-			  }
-			  if (( F->loop_ptr->type == REPEAT) && (F->loop_ptr->end == F->pc )) {
-				  int endif, thenaddr;
-				  char* test = NULL;
-				  LogicExp* exp = NULL;
-				  TRY(exp = MakeBoolean(F, &endif, &thenaddr));
-				  TRY(test = WriteBoolean(exp, &thenaddr, &endif, 0));
-				  if (F->currStmt->type == REPEAT_STMT) {
-					  F->currStmt->code = test;
-					  test = NULL;
-					  F->currStmt = F->currStmt->parent;
-				  } else {
-					  SET_ERROR(F, "unexpected 'until' of 'repeat'");
-				  }
-				  if (test) free(test);
-				  if (exp) DeleteLogicExpTree(exp);
-			  }
-			  break;
-		  }
-	  case OP_CALL:
-	  case OP_TAILCALL:
-		  {
-			  /*
-			  * Function call. The CALL opcode works like this:
-			  * R(A),...,R(A+F-2) := R(A)(R(A+1),...,R(A+B-1))
-			  */
-			  int i, limit, self;
-			  const char* astr;
-			  self = 0;
+			{
+				int dest;
+				BoolOp* lastBool;
+				pc++;
+				F->pc = pc;
+				i = code[pc];
+				o = GET_OPCODE(i);
+				if (o != OP_JMP) {
+					assert(0);
+				}
+				sbc = GETARG_sBx(i);
+				dest = sbc + pc + 2;
+				lastBool = cast(BoolOp*, LastItem(&(F->bools)));
+				lastBool->dest = dest;
+				if (F->testpending) {
+					F->testjump = dest;
+				}
+				if (( F->loop_ptr->type == REPEAT) && (F->loop_ptr->end == F->pc )) {
+					int endif, thenaddr;
+					char* test = NULL;
+					LogicExp* exp = NULL;
+					TRY(exp = MakeBoolean(F, &thenaddr, &endif));
+					TRY(test = WriteBoolean(exp, &thenaddr, &endif, 0));
+					if (F->currStmt->type == REPEAT_STMT) {
+						F->currStmt->code = test;
+						test = NULL;
+						F->currStmt = F->currStmt->parent;
+					} else {
+						SET_ERROR(F, "unexpected 'until' of 'repeat'");
+					}
+					if (test) free(test);
+					if (exp) DeleteLogicExpTree(exp);
+				}
+				break;
+			}
+		case OP_CALL:
+		case OP_TAILCALL:
+			{
+				/*
+				* Function call. The CALL opcode works like this:
+				* R(A),...,R(A+F-2) := R(A)(R(A+1),...,R(A+B-1))
+				*/
+				int i, limit, self;
+				const char* astr;
+				self = 0;
 
-			  if (b == 0) {
+				if (b == 0) {
 
-				  limit = a + 1;
-				  while (PENDING(limit) || IS_VARIABLE(limit)) limit++;
-			  } else
-				  limit = a + b;
-			  if (o == OP_TAILCALL) {
-				  StringBuffer_set(str, "return ");
-				  ignoreNext = 1;
-			  }
-			  TRY(astr = GetR(F, a));
-			  StringBuffer_addPrintf(str, "%s(", astr);
+					limit = a + 1;
+					while (PENDING(limit) || IS_VARIABLE(limit)) limit++;
+				} else
+					limit = a + b;
+				if (o == OP_TAILCALL) {
+					StringBuffer_set(str, "return ");
+					ignoreNext = 1;
+				}
+				TRY(astr = GetR(F, a));
+				StringBuffer_addPrintf(str, "%s(", astr);
 
-			  {
-				  const char* at = astr + strlen(astr) - 1;
-				  while (at > astr && (luadec_isalpha(*at) || *at == '_')) {
-					  at--;
-				  }
-				  if (*at == ':')
-					  self = 1;
-			  }
+				{
+					const char* at = astr + strlen(astr) - 1;
+					while (at > astr && (luadec_isalpha(*at) || *at == '_')) {
+						at--;
+					}
+					if (*at == ':')
+						self = 1;
+				}
 
-			  for (i = a + 1; i < limit; i++) {
-				  const char *ireg = NULL;
-				  TRY(ireg = GetR(F, i));
-				  if(strcmp(ireg,".end") == 0)
-					  break;
-				  if (self && i == a+1)
-					  continue;
-				  if (i > a + 1 + self)
-					  StringBuffer_add(str, ", ");
-				  if (ireg)
-					  StringBuffer_add(str, ireg);
-			  }
-			  StringBuffer_addChar(str, ')');
+				for (i = a + 1; i < limit; i++) {
+					const char *ireg = NULL;
+					TRY(ireg = GetR(F, i));
+					if(strcmp(ireg,".end") == 0)
+						break;
+					if (self && i == a+1)
+						continue;
+					if (i > a + 1 + self)
+						StringBuffer_add(str, ", ");
+					if (ireg)
+						StringBuffer_add(str, ireg);
+				}
+				StringBuffer_addChar(str, ')');
 
-			  if (c == 0) {
-				  F->lastCall = a;
-			  }
-			  if (GET_OPCODE(code[pc+1]) == OP_LOADNIL && GETARG_A(code[pc+1]) == a+1) {
-				  StringBuffer_prepend(str, "(");
-				  StringBuffer_add(str, ")");
-				  c += GETARG_B(code[pc+1]) - GETARG_A(code[pc+1]) + 1;
-				  // ignoreNext = 1;
-			  }
-			  if (o == OP_TAILCALL || c == 1 ) {
-				  TRY(AddStatement(F, str));
-			  } else {
-				  TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
-				  if (c == 0) TRY(AssignReg(F, a+1, ".end", 0, 1));
-				  for (i = 0; i < c-1; i++) {
-					  CALL(a+i) = i+1;
-				  }
-			  }
-			  break;
-		  }
-	  case OP_RETURN:
-		  {
-			  /*
-			  * Return call. The RETURN opcode works like this: return
-			  * R(A),...,R(A+B-2)
-			  */
-			  int i, limit;
+				if (c == 0) {
+					F->lastCall = a;
+				}
+				if (GET_OPCODE(code[pc+1]) == OP_LOADNIL && GETARG_A(code[pc+1]) == a+1) {
+					StringBuffer_prepend(str, "(");
+					StringBuffer_add(str, ")");
+					c += GETARG_B(code[pc+1]) - GETARG_A(code[pc+1]) + 1;
+					// ignoreNext = 1;
+				}
+				if (o == OP_TAILCALL || c == 1 ) {
+					TRY(AddStatement(F, str));
+				} else {
+					TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
+					if (c == 0) TRY(AssignReg(F, a+1, ".end", 0, 1));
+					for (i = 0; i < c-1; i++) {
+						CALL(a+i) = i+1;
+					}
+				}
+				break;
+			}
+		case OP_RETURN:
+			{
+				/*
+				* Return call. The RETURN opcode works like this: return
+				* R(A),...,R(A+B-2)
+				*/
+				int i, limit;
 
-			  /* skip the last RETURN */
-			  if (pc == n - 1)
-				  break;
-			  if (b == 0) {
-				  limit = a;
-				  while (PENDING(limit) || IS_VARIABLE(limit)) limit++;
-			  }
-			  else
-				  limit = a + b - 1;
-			  StringBuffer_set(str, "return ");
-			  for (i = a; i < limit; i++) {
-				  const char* istr = GetR(F, i);
-				  if (strcmp(istr,".end") == 0)
-					  break;
-				  if (i > a)
-					  StringBuffer_add(str, ", ");
-				  TRY(StringBuffer_add(str, istr));
-			  }
-			  TRY(AddStatement(F, str));
-			  break;
-		  }
-	  case OP_FORLOOP: //Lua5.1 specific. TODO: CHECK
-		  {
-			  int i;
-			  AstStatement* currStmt = F->currStmt;
+				/* skip the last RETURN */
+				if (pc == n - 1)
+					break;
+				if (b == 0) {
+					limit = a;
+					while (PENDING(limit) || IS_VARIABLE(limit)) limit++;
+				}
+				else
+					limit = a + b - 1;
+				StringBuffer_set(str, "return ");
+				for (i = a; i < limit; i++) {
+					const char* istr = GetR(F, i);
+					if (strcmp(istr,".end") == 0)
+						break;
+					if (i > a)
+						StringBuffer_add(str, ", ");
+					TRY(StringBuffer_add(str, istr));
+				}
+				TRY(AddStatement(F, str));
+				break;
+			}
+		case OP_FORLOOP: //Lua5.1 specific. TODO: CHECK
+			{
+				int i;
+				AstStatement* currStmt = F->currStmt;
 
-			  for (i=F->intbegin[F->intspos]; i<=F->intend[F->intspos]; i++)
-			  {
-				  //fprintf(stderr,"X %d\n",i);
-				  IS_VARIABLE(i)=0;
-				  F->Rinternal[i] = 0;
-			  }
-			  F->intspos--;
-			  F->ignore_for_variables = 0;
+				for (i=F->intbegin[F->intspos]; i<=F->intend[F->intspos]; i++)
+				{
+					//fprintf(stderr,"X %d\n",i);
+					IS_VARIABLE(i)=0;
+					F->Rinternal[i] = 0;
+				}
+				F->intspos--;
+				F->ignore_for_variables = 0;
 
-			  if (currStmt->type == FORLOOP_STMT) {
-				  F->currStmt = currStmt->parent;
-			  } else {
-				  SET_ERROR(F, "unexpected 'end' of 'for' loop");
-			  }
-			  break;
-		  }
-	  case OP_TFORLOOP: //Lua5.1 specific. TODO: CHECK
-		  {
-			  int i;
-			  AstStatement* currStmt = F->currStmt;
-			  for (i=F->intbegin[F->intspos]; i<=F->intend[F->intspos]; i++)
-			  {
-				  IS_VARIABLE(i)=0;
-				  F->Rinternal[i] = 0;
-			  }
-			  F->intspos--;
+				if (currStmt->type == FORLOOP_STMT) {
+					F->currStmt = currStmt->parent;
+				} else {
+					SET_ERROR(F, "unexpected 'end' of 'for' loop");
+				}
+				break;
+			}
+		case OP_TFORLOOP: //Lua5.1 specific. TODO: CHECK
+			{
+				int i;
+				AstStatement* currStmt = F->currStmt;
+				for (i=F->intbegin[F->intspos]; i<=F->intend[F->intspos]; i++)
+				{
+					IS_VARIABLE(i)=0;
+					F->Rinternal[i] = 0;
+				}
+				F->intspos--;
 
-			  F->ignore_for_variables = 0;
-			  if (currStmt->type == TFORLOOP_STMT) {
-				  F->currStmt = currStmt->parent;
-			  } else {
-				  SET_ERROR(F, "unexpected 'end' of generic 'for' loop");
-			  }
-			  ignoreNext = 1;
-			  break;
-		  }
-	  case OP_FORPREP: //Lua5.1 specific. TODO: CHECK
-		  {
-			  /*
-			  * numeric 'for'
-			  */
-			  int i;
-			  int step;
-			  char *idxname;
-			  const char *initial, *a1str, *endstr;
-			  int stepLen;
-			  AstStatement* forstmt = NULL;
-			  F->intspos++;
-			  TRY(initial = GetR(F, a));
-			  TRY(endstr = GetR(F, a+2));
-			  TRY(a1str = GetR(F, a+1));
+				F->ignore_for_variables = 0;
+				if (currStmt->type == TFORLOOP_STMT) {
+					F->currStmt = currStmt->parent;
+				} else {
+					SET_ERROR(F, "unexpected 'end' of generic 'for' loop");
+				}
+				ignoreNext = 1;
+				break;
+			}
+		case OP_FORPREP: //Lua5.1 specific. TODO: CHECK
+			{
+				/*
+				* numeric 'for'
+				*/
+				int i;
+				int step;
+				char *idxname;
+				const char *initial, *a1str, *endstr;
+				int stepLen;
+				AstStatement* forstmt = NULL;
+				F->intspos++;
+				TRY(initial = GetR(F, a));
+				TRY(endstr = GetR(F, a+2));
+				TRY(a1str = GetR(F, a+1));
 
-			  if (!IS_VARIABLE(a+3)) {
-				  int loopvars = 0;
-				  idxname = NULL;
-				  for (i = 0; i < f->sizelocvars; i++) {
-					  if (f->locvars[i].startpc == pc + 1) {
-						  loopvars++;
-						  //search for the loop variable. Set it's endpc one step further so it will be the same for all loop variables
-						  if (GET_OPCODE(F->f->code[f->locvars[i].endpc-1]) == OP_FORLOOP) {
-							  f->locvars[i].endpc -=1;
-						  }
-						  if (loopvars==4) {
-							  idxname = LOCAL(i);
-							  break;
-						  }
-					  }
-				  }
-				  if (idxname == NULL) {
-					  idxname = "i";
-					  TRY(DeclareVariable(F, idxname, a + 3));
-				  }
-			  } else {
-				  idxname = F->R[a+3];
-			  }
-			  DeclarePendingLocals(F);
-			  /*
-			  * if A argument for FORLOOP is not a known variable,
-			  * it was declared in the 'for' statement. Look for
-			  * its name in the locals table.
-			  */
+				if (!IS_VARIABLE(a+3)) {
+					int loopvars = 0;
+					idxname = NULL;
+					for (i = 0; i < f->sizelocvars; i++) {
+						if (f->locvars[i].startpc == pc + 1) {
+							loopvars++;
+							//search for the loop variable. Set it's endpc one step further so it will be the same for all loop variables
+							if (GET_OPCODE(F->f->code[f->locvars[i].endpc-1]) == OP_FORLOOP) {
+								f->locvars[i].endpc -=1;
+							}
+							if (loopvars==4) {
+								idxname = LOCAL(i);
+								break;
+							}
+						}
+					}
+					if (idxname == NULL) {
+						idxname = "i";
+						TRY(DeclareVariable(F, idxname, a + 3));
+					}
+				} else {
+					idxname = F->R[a+3];
+				}
+				DeclarePendingLocals(F);
+				/*
+				* if A argument for FORLOOP is not a known variable,
+				* it was declared in the 'for' statement. Look for
+				* its name in the locals table.
+				*/
 
 
 
-			  //initial = luadec_strdup(initial);
-			  step = atoi(REGISTER(a + 2));
-			  stepLen = strlen(REGISTER(a + 2));
-			  // findSign = strrchr(initial, '-');
+				//initial = luadec_strdup(initial);
+				step = atoi(REGISTER(a + 2));
+				stepLen = strlen(REGISTER(a + 2));
+				// findSign = strrchr(initial, '-');
 
-			  // if (findSign) {
-			  //    initial[strlen(initial) - stepLen - 3] = '\0';
-			  // }
+				// if (findSign) {
+				//    initial[strlen(initial) - stepLen - 3] = '\0';
+				// }
 
-			  if (step == 1) {
-				  StringBuffer_printf(str, "%s = %s, %s",
-					  idxname, initial, a1str);
-			  } else {
-				  StringBuffer_printf(str, "%s = %s, %s, %s",
-					  idxname, initial, a1str, REGISTER(a + 2));
-			  }
+				if (step == 1) {
+					StringBuffer_printf(str, "%s = %s, %s",
+						idxname, initial, a1str);
+				} else {
+					StringBuffer_printf(str, "%s = %s, %s, %s",
+						idxname, initial, a1str, REGISTER(a + 2));
+				}
 
-			  /*
-			  * Every numeric 'for' declares 4 variables.
-			  */
-			  F->Rinternal[a] = 1;
-			  F->Rinternal[a + 1] = 1;
-			  F->Rinternal[a + 2] = 1;
-			  F->Rinternal[a + 3] = 1;
-			  F->intbegin[F->intspos] = a;
-			  F->intend[F->intspos] = a+3;
-			  forstmt = MakeLoopStatement(FORLOOP_STMT, StringBuffer_getBuffer(str));
-			  AddAstStatement(F, forstmt);
-			  F->currStmt = forstmt;
-			  break;
-		  }
-	  case OP_SETLIST:
-		  {
-			  TRY(SetList(F, a, b, c));
-			  break;
-		  }
-	  case OP_CLOSE:
-		  /*
-		  * Handled in do_opens/do_closes variables.
-		  */
-		  break;
-	  case OP_CLOSURE:
-		  {
-			  /*
-			  * Function.
-			  */
-			  int i;
-			  int uvn;
-			  int cfnum = functionnum;
+				/*
+				* Every numeric 'for' declares 4 variables.
+				*/
+				F->Rinternal[a] = 1;
+				F->Rinternal[a + 1] = 1;
+				F->Rinternal[a + 2] = 1;
+				F->Rinternal[a + 3] = 1;
+				F->intbegin[F->intspos] = a;
+				F->intend[F->intspos] = a+3;
+				forstmt = MakeLoopStatement(FORLOOP_STMT, StringBuffer_getBuffer(str));
+				AddAstStatement(F, forstmt);
+				F->currStmt = forstmt;
+				break;
+			}
+		case OP_SETLIST:
+			{
+				TRY(SetList(F, a, b, c));
+				break;
+			}
+		case OP_CLOSE:
+			/*
+			* Handled in do_opens/do_closes variables.
+			*/
+			break;
+		case OP_CLOSURE:
+			{
+				/*
+				* Function.
+				*/
+				int i;
+				int uvn;
+				int cfnum = functionnum;
 
-			  uvn = f->p[c]->nups;
+				uvn = f->p[c]->nups;
 
-			  /* determining upvalues */
+				/* determining upvalues */
 
-			  // upvalue names = next n opcodes after CLOSURE
+				// upvalue names = next n opcodes after CLOSURE
 
-			  if (!f->p[c]->upvalues) {
-				  f->p[c]->sizeupvalues = uvn;
-				  f->p[c]->upvalues = luaM_newvector(glstate,uvn,TString*);
+				if (!f->p[c]->upvalues) {
+					f->p[c]->sizeupvalues = uvn;
+					f->p[c]->upvalues = luaM_newvector(glstate,uvn,TString*);
 
-				  for (i=0; i<uvn; i++) {
-					  if (GET_OPCODE(code[pc+i+1]) == OP_MOVE) {
-						  char names[10];
-						  sprintf(names,"l_%d_%d",functionnum,GETARG_B(code[pc+i+1]));
-						  f->p[c]->upvalues[i] = luaS_new(glstate, names);
-					  } else if (GET_OPCODE(code[pc+i+1]) == OP_GETUPVAL) {
-						  f->p[c]->upvalues[i] = f->upvalues[GETARG_B(code[pc+i+1])];
-					  } else {
-						  char names[20];
-						  sprintf(names,"upval_%d_%d",functionnum,i);
-						  f->p[c]->upvalues[i] = luaS_new(glstate, names);
-					  }
-				  }
-			  }
+					for (i=0; i<uvn; i++) {
+						if (GET_OPCODE(code[pc+i+1]) == OP_MOVE) {
+							char names[10];
+							sprintf(names,"l_%d_%d",functionnum,GETARG_B(code[pc+i+1]));
+							f->p[c]->upvalues[i] = luaS_new(glstate, names);
+						} else if (GET_OPCODE(code[pc+i+1]) == OP_GETUPVAL) {
+							f->p[c]->upvalues[i] = f->upvalues[GETARG_B(code[pc+i+1])];
+						} else {
+							char names[20];
+							sprintf(names,"upval_%d_%d",functionnum,i);
+							f->p[c]->upvalues[i] = luaS_new(glstate, names);
+						}
+					}
+				}
 
-			  /* upvalue determinition end */
-			  if ( func_checking == 1){
-                  StringBuffer_set(str, "function");
-				  functionnum = c+1;
-				  StringBuffer_add(str, PrintFunctionOnlyParamsAndUpvalues(f->p[c], F->indent));
-				  functionnum = cfnum;
-				  for (i = 0; i < F->indent; i++) {
-					  StringBuffer_add(str, "  ");
-				  }
-				  StringBuffer_add(str, "end");
-				  if (F->indent == 0)
-					  StringBuffer_add(str, "\n");
-			  }else if (disnested){
-				  StringBuffer_printf(str, "_decompied_function_%d_",c+1);
-			  }else{
-				  char* code = NULL;
-				  StringBuffer_set(str, "function");
-				  functionnum = c+1;
-				  code = ProcessCode(f->p[c], F->indent, 0);
-				  StringBuffer_add(str, code);
-				  free(code);
-				  functionnum = cfnum;
-				  for (i = 0; i < F->indent; i++) {
-					  StringBuffer_add(str, "  ");
-				  }
-				  StringBuffer_add(str, "end");
-				  if (F->indent == 0)
-					  StringBuffer_add(str, "\n");
-			  }
-			  TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
-			  /* need to add upvalue handling */
+				/* upvalue determinition end */
+				if ( func_checking == 1){
+					StringBuffer_set(str, "function");
+					functionnum = c+1;
+					StringBuffer_add(str, PrintFunctionOnlyParamsAndUpvalues(f->p[c], F->indent));
+					functionnum = cfnum;
+					for (i = 0; i < F->indent; i++) {
+						StringBuffer_add(str, "  ");
+					}
+					StringBuffer_add(str, "end");
+					if (F->indent == 0)
+						StringBuffer_add(str, "\n");
+				}else if (disnested){
+					StringBuffer_printf(str, "_decompied_function_%d_",c+1);
+				}else{
+					char* code = NULL;
+					StringBuffer_set(str, "function");
+					functionnum = c+1;
+					code = ProcessCode(f->p[c], F->indent, 0);
+					StringBuffer_add(str, code);
+					free(code);
+					functionnum = cfnum;
+					for (i = 0; i < F->indent; i++) {
+						StringBuffer_add(str, "  ");
+					}
+					StringBuffer_add(str, "end");
+					if (F->indent == 0)
+						StringBuffer_add(str, "\n");
+				}
+				TRY(AssignReg(F, a, StringBuffer_getRef(str), 0, 0));
+				/* need to add upvalue handling */
 
-			  ignoreNext = f->p[c]->sizeupvalues;
+				ignoreNext = f->p[c]->sizeupvalues;
 
-			  break;
-		  }
-	  default:
-		  StringBuffer_printf(str, "-- unhandled opcode? : %-9s\t\n", luaP_opnames[o]);
-		  TRY(AddStatement(F, str));
-		  break;
+				break;
+			}
+		default:
+			StringBuffer_printf(str, "-- unhandled opcode? : %-9s\t\n", luaP_opnames[o]);
+			TRY(AddStatement(F, str));
+			break;
 		}
 
 		if (debug) {
 			TRY(ShowState(F));
-			/**
-			{
-				char* f = PrintFunction(F);
-				fprintf(stddebug, "%s\n", f);
-				free(f);
-			}
-			**/
 		}
 
-		if (GetEndifAddr(F, pc)) {
-			AstStatement* currStmt = F->currStmt;
-			F->elseWritten = 0;
-			if (currStmt->type == IF_THEN_STMT || currStmt->type == IF_ELSE_STMT) {
-				F->currStmt = currStmt->parent->parent;
-			} else {
-				SET_ERROR(F, "unexpected 'end' of 'if'");
-			}
+		// TODO Check, should not do this
+		if ((F->currStmt->type == IF_THEN_STMT || F->currStmt->type == IF_THEN_STMT)
+			&& ElseStart(F->currStmt->parent) == GetJmpAddr(F, pc - 1)) {
+			AstStatement* ifstmt = F->currStmt->parent;
+			F->currStmt = ifstmt->parent;
 		}
 
 		TRY(OutputAssignments(F));
-
 	}
 
-	if (GetEndifAddr(F, pc+1)) {
-		AstStatement* currStmt = F->currStmt;
-		F->elseWritten = 0;
-		if (currStmt->type == IF_THEN_STMT || currStmt->type == IF_ELSE_STMT) {
-			F->currStmt = currStmt->parent->parent;
-		} else {
-			SET_ERROR(F, "unexpected 'end' of 'if'");
-		}
+	// TODO Check, should not do this
+	if ((F->currStmt->type == IF_THEN_STMT || F->currStmt->type == IF_THEN_STMT)
+		&& ElseStart(F->currStmt->parent) == GetJmpAddr(F, pc)) {
+		AstStatement* ifstmt = F->currStmt->parent;
+		F->currStmt = ifstmt->parent;
 	}
 
 	TRY(FlushBoolean(F));
