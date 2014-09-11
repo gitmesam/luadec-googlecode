@@ -17,4 +17,11 @@
 
 #endif
 
+#define MACRO_STR_RAW(tok) #tok
+#define MACRO_STR(tok) MACRO_STR_RAW(tok)
+
+#ifndef STRING_LOCALE
+	#define STRING_LOCALE ASCII
+#endif
+
 #endif

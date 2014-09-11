@@ -4,22 +4,23 @@ LIBDIR=..
 BINDIR=.
 
 CC= gcc
-CFLAGS= -O2 -Wall -DSRCVERSION=\"$(SRCVERSION)\" $(INCS) $(MYCFLAGS)
+CFLAGS= -O2 -Wall -DSRCVERSION=\"$(SRCVERSION)\" -DSTRING_LOCALE=$(STRING_LOCALE) $(INCS) $(MYCFLAGS)
 LDFLAGS= $(MYLDFLAGS)
 AR= ar rcu
 RANLIB= ranlib
 RM= rm -f
 LIBS= -lm $(MYLIBS)
 
-SRCVERSION=$(shell svnversion -n .)
+SRCVERSION= $(shell svnversion -n .)
+STRING_LOCALE= GBK
 MYCFLAGS=
 MYLDFLAGS=
 MYLIBS=
 MYOBJS=
 
 INCS= -I..
-OBJS= guess.o luadec.o decompile.o disassemble.o proto.o StringBuffer.o structs.o
-SRCS= guess.c luadec.c decompile.c disassemble.c proto.c StringBuffer.c structs.c
+OBJS= guess.o luadec.o decompile.o disassemble.o proto.o StringBuffer.o structs.o ast.o
+SRCS= guess.c luadec.c decompile.c disassemble.c proto.c StringBuffer.c structs.c ast.c
 
 T= luadec
 
